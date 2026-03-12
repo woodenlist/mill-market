@@ -46,6 +46,14 @@ const ROLES = {
   admin:   {label:"Admin",      icon:"⚙️", color:C.rust  },
 };
 
+function haversineDistance(lat1,lng1,lat2,lng2){
+  const R=3959;
+  const dLat=(lat2-lat1)*Math.PI/180;
+  const dLng=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
 const OP_TYPES = {
   tree_length:    {label:"Tree-Length",    icon:"🌲", rateUnit:"ton",      species:["Pine Sawtimber","Spruce Sawtimber","Fir Sawtimber","Oak Hardwood","Maple Hardwood","Aspen","Birch","Softwood Pulp","Hardwood Pulp","Chip-n-Saw","Pine Pulp"]},
   cut_to_length:  {label:"Cut-to-Length",  icon:"✂️", rateUnit:"MBF",      species:["Pine Sawtimber (8ft)","Pine Sawtimber (16ft)","Pulpwood (8ft)","Hardwood (8ft)","Hardwood (12ft)","Pallet Wood"]},
@@ -1846,7 +1854,7 @@ function Onboarding({onComplete}){
                 <Inp label="Acres (optional)" suffix="ac" type="number" value={form.firstSiteAcres} onChange={h("firstSiteAcres")}/>
                 <Sel label="Nearest Mill" value={form.firstMill} onChange={h("firstMill")}>
                   <option value="">Select mill…</option>
-                  {mills.map(m=><option key={m.id} value={m.name}>{m.name.split("—")[0].trim()}</option>)}
+                  {(userLoc?mills.filter(m=>m.lat&&m.lng).map(m=>({...m,_dist:haversineDistance(userLoc.lat,userLoc.lng,m.lat,m.lng)})).sort((a,b)=>a._dist-b._dist).slice(0,25):mills.slice(0,25)).map(m=><option key={m.id} value={m.name}>{m.name.split("—")[0].trim()}{m._dist?` (${Math.round(m._dist)} mi)`:""}</option>)}
                 </Sel>
               </div>
               <div style={{fontSize:12,color:C.muted}}>You can skip this and add sites from the Rate Map → Job Sites tab at any time.</div>
@@ -2308,13 +2316,6 @@ function MapView({user,activeRole}){
   };
   const shareLink=site=>`https://millmarket.com/site/${site?.id}?lat=${site?.lat}&lng=${site?.lng}&name=${encodeURIComponent(site?.name||"")}`;
   const sendShare=()=>{setShareSent(true);setTimeout(()=>setShareModal(null),1400);};
-  function haversineDistance(lat1,lng1,lat2,lng2){
-    const R=3959;
-    const dLat=(lat2-lat1)*Math.PI/180;
-    const dLng=(lng2-lng1)*Math.PI/180;
-    const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
-    return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-  }
 
   const filteredMills=mills.filter(m=>{
     if(filterConf==="high") return m.confidence>=80;
@@ -2578,7 +2579,21 @@ function MapView({user,activeRole}){
 // LOAD TICKETS WITH AUTOFILL
 // ═══════════════════════════════════════════════════════════════════════════
 function LoadTicketsWithAutofill({user,activeRole}){
-  const {tickets,setTickets,mills}=useAppData();
+  const {tickets,setTickets,mills,jobSites}=useAppData();
+  const [userLoc,setUserLoc]=useState(null);
+  useEffect(()=>{
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(
+        (pos)=>setUserLoc({lat:pos.coords.latitude,lng:pos.coords.longitude}),
+        ()=>{},{enableHighAccuracy:false,timeout:10000}
+      );
+    }
+  },[]);
+  const nearestMills=useMemo(()=>{
+    const ref=userLoc||(jobSites.length>0?{lat:jobSites[0].lat,lng:jobSites[0].lng}:null);
+    if(!ref) return mills.slice(0,25);
+    return mills.filter(m=>m.lat&&m.lng).map(m=>({...m,_dist:haversineDistance(ref.lat,ref.lng,m.lat,m.lng)})).sort((a,b)=>a._dist-b._dist).slice(0,25);
+  },[mills,userLoc,jobSites]);
   const [newModal,setNewModal]=useState(false);
   const [viewTicket,setViewTicket]=useState(null);
   const [photoFile,setPhotoFile]=useState(null);
@@ -2777,10 +2792,9 @@ function LoadTicketsWithAutofill({user,activeRole}){
                 <Inp label="Ticket #" placeholder="Auto-generated if blank" value={form.no} onChange={h("no")}/>
                 <Inp label="Date" type="date" value={form.date} onChange={h("date")}/>
                 <Inp label="Job Site" placeholder="Rhinelander NW Block" value={form.jobSite} onChange={h("jobSite")} autofilled={autofilled.jobSite&&!!form.jobSite}/>
-                <Sel label="Mill" value={form.mill} onChange={h("mill")} autofilled={autofilled.mill&&!!form.mill}>
+                <Sel label="Mill (nearest 25)" value={form.mill} onChange={h("mill")} autofilled={autofilled.mill&&!!form.mill}>
                   <option value="">Select mill…</option>
-                  {mills.map(m=><option key={m.id} value={m.name}>{m.name}</option>)}
-                  <option value="Green Bay Packaging">Green Bay Packaging</option>
+                  {nearestMills.map(m=><option key={m.id} value={m.name}>{m.name}{m._dist?` (${Math.round(m._dist)} mi)`:""}</option>)}
                 </Sel>
                 <Sel label="Species" value={form.species} onChange={h("species")} autofilled={autofilled.species&&!!form.species}>
                   <option value="">Select species…</option>
@@ -3172,11 +3186,25 @@ function MillQuotas(){
 // MAP VIEW — mill pins, job site pin-drop, share-to-crew
 
 function HaulCalculator(){
+  const {mills:allMills,jobSites}=useAppData();
   const mobile=useMobile();
   const [load,setLoad]=useState(22);const [fuel,setFuel]=useState(3.87);const [mpg,setMpg]=useState(6.2);const [pay,setPay]=useState(28);
-  const mills=[{name:"Weyerhaeuser",miles:47,rate:32.50},{name:"Stora Enso",miles:82,rate:34.00},{name:"Sappi",miles:94,rate:35.00},{name:"Potlatch",miles:420,rate:28.50,closed:true}];
+  const [userLoc,setUserLoc]=useState(null);
+  useEffect(()=>{
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(
+        (pos)=>setUserLoc({lat:pos.coords.latitude,lng:pos.coords.longitude}),
+        ()=>{},{enableHighAccuracy:false,timeout:10000}
+      );
+    }
+  },[]);
+  const nearest5=useMemo(()=>{
+    const ref=userLoc||(jobSites.length>0?{lat:jobSites[0].lat,lng:jobSites[0].lng}:null);
+    if(!ref) return allMills.slice(0,5).map(m=>({name:m.name,miles:50,rate:Object.values(m.rates||{})[0]||30,accepting:m.accepting}));
+    return allMills.filter(m=>m.lat&&m.lng).map(m=>({name:m.name,miles:Math.round(haversineDistance(ref.lat,ref.lng,m.lat,m.lng)),rate:Object.values(m.rates||{})[0]||30,accepting:m.accepting,closed:!m.accepting})).sort((a,b)=>a.miles-b.miles).slice(0,5);
+  },[allMills,userLoc,jobSites]);
   const calc=m=>{const gross=load*m.rate;const ft=(m.miles*2)/mpg*fuel;const lb=(m.miles*2/55)*pay;return{...m,gross,fuel:Math.round(ft),labor:Math.round(lb),net:Math.round(gross-ft-lb)};};
-  const res=mills.map(calc).sort((a,b)=>b.net-a.net);
+  const res=nearest5.map(calc).sort((a,b)=>b.net-a.net);
   return(
     <div style={{padding:mobile?14:26,maxWidth:900,margin:"0 auto"}}>
       <Lbl>// Haul Calculator</Lbl><H1 size={mobile?26:34} style={{marginTop:5,marginBottom:20}}>HAUL <span style={{color:C.gold}}>PROFITABILITY</span></H1>
@@ -3408,16 +3436,17 @@ function FuelLog(){
 const MACHINE_TYPES=["Feller Buncher","Skidder","Processor","Loader","Forwarder","Log Truck","Service Truck","Chipper","Excavator","Other"];
 const MACHINE_MAKES=["John Deere","Tigercat","Komatsu","Ponsse","Caterpillar","Volvo","Peterbilt","Kenworth","Mack","International","Other"];
 
+const DEMO_MACHINES=[
+  {id:"m1",name:"Tigercat 822D",  type:"Feller Buncher",make:"Tigercat",  year:2021,assignedTo:"Dale Schultz", hours:4820,nextService:5000,status:"active"},
+  {id:"m2",name:"Deere 648L",     type:"Skidder",       make:"John Deere",year:2020,assignedTo:"Roy Ingram",    hours:6140,nextService:6500,status:"active"},
+  {id:"m3",name:"Komatsu PC228",  type:"Loader",        make:"Komatsu",   year:2019,assignedTo:"Mike Sorensen", hours:8320,nextService:8500,status:"active"},
+  {id:"m4",name:"Peterbilt 389",  type:"Log Truck",     make:"Peterbilt", year:2022,assignedTo:"Carlos Diaz",   hours:2100,nextService:2500,status:"active"},
+  {id:"m5",name:"Peterbilt 389-2",type:"Log Truck",     make:"Peterbilt", year:2018,assignedTo:"Lisa Park",     hours:5680,nextService:6000,status:"leave"},
+];
 function CrewManagement({user}){
   const {crew,setCrew}=useAppData();
   const mobile=useMobile();
-  const [machines,setMachines]=useState([
-    {id:"m1",name:"Tigercat 822D",  type:"Feller Buncher",make:"Tigercat",  year:2021,assignedTo:"Dale Schultz", hours:4820,nextService:5000,status:"active"},
-    {id:"m2",name:"Deere 648L",     type:"Skidder",       make:"John Deere",year:2020,assignedTo:"Roy Ingram",    hours:6140,nextService:6500,status:"active"},
-    {id:"m3",name:"Komatsu PC228",  type:"Loader",        make:"Komatsu",   year:2019,assignedTo:"Mike Sorensen", hours:8320,nextService:8500,status:"active"},
-    {id:"m4",name:"Peterbilt 389",  type:"Log Truck",     make:"Peterbilt", year:2022,assignedTo:"Carlos Diaz",   hours:2100,nextService:2500,status:"active"},
-    {id:"m5",name:"Peterbilt 389-2",type:"Log Truck",     make:"Peterbilt", year:2018,assignedTo:"Lisa Park",     hours:5680,nextService:6000,status:"leave"},
-  ]);
+  const [machines,setMachines]=useState(isDemo(user?.id)?DEMO_MACHINES:[]);
 
   const [tab,setTab]=useState("crew");
   const [addCrewModal,setAddCrewModal]=useState(false);
