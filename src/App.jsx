@@ -6,6 +6,8 @@ import { isDemo, useMills, useTickets, useJobSites, useHauls, useCrew, useAlerts
 
 const UserIdContext = createContext(null);
 const useUserId = () => useContext(UserIdContext);
+const AppDataContext = createContext(null);
+const useAppData = () => useContext(AppDataContext);
 
 function useMobile(){
   const [m,setM]=useState(typeof window!=="undefined"&&window.innerWidth<768);
@@ -444,7 +446,7 @@ function Sidebar({user,activeRole,view,setView}){
     <div style={{width:218,minWidth:218,background:C.bark,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",height:"100vh",position:"fixed",left:0,top:0,zIndex:50,overflowY:"auto"}}>
       <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${C.border}`}}>
         <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:24,letterSpacing:3,color:C.gold}}>MILL<span style={{color:C.sawdust}}>MARKET</span></div>
-        <div style={{fontSize:9,color:C.muted,fontFamily:"'DM Mono',monospace",letterSpacing:1,marginTop:2}}>Harmon Logging LLC</div>
+        <div style={{fontSize:9,color:C.muted,fontFamily:"'DM Mono',monospace",letterSpacing:1,marginTop:2}}>{user.company||"MillMarket"}</div>
       </div>
       <div style={{flex:1,padding:"6px 0"}}>
         {items.map(item=>(
@@ -472,18 +474,15 @@ function Sidebar({user,activeRole,view,setView}){
 // ═══════════════════════════════════════════════════════════════════════════
 // OWNER P&L
 // ═══════════════════════════════════════════════════════════════════════════
-function OwnerPL(){
-  const userId=useUserId();
-  const {data:hauls}=useHauls(userId,HAULS);
-  const {data:crew}=useCrew(userId,CREW);
-  const {data:jobSites}=useJobSites(userId,JOB_SITES);
+function OwnerPL({user}){
+  const {hauls,crew,jobSites}=useAppData();
   const mobile=useMobile();
   const [period,setPeriod]=useState("week");
   const [entity,setEntity]=useState("all");
 
   const entities=[
-    {id:"logging",name:"Harmon Logging LLC",  EIN:"82-1234567",color:C.fresh},
-    {id:"hauling",name:"Harmon Hauling LLC",   EIN:"82-7654321",color:C.blue},
+    {id:"logging",name:user?.company||"My Company",  EIN:"",color:C.fresh},
+    {id:"hauling",name:"Hauling Division",   EIN:"",color:C.blue},
   ];
 
   const totalGross=hauls.reduce((s,h)=>s+h.gross,0);
@@ -503,8 +502,8 @@ function OwnerPL(){
   }).filter(s=>s.loads>0);
 
   const entityData=[
-    {id:"logging",name:"Logging LLC",color:C.fresh,gross:totalGross*0.65,fuel:totalFuel*0.55,crew:crewCost*0.6,maint:840,net:0},
-    {id:"hauling",name:"Hauling LLC", color:C.blue, gross:totalGross*0.35,fuel:totalFuel*0.45,crew:crewCost*0.4,maint:320,net:0},
+    {id:"logging",name:user?.company||"Logging LLC",color:C.fresh,gross:totalGross*0.65,fuel:totalFuel*0.55,crew:crewCost*0.6,maint:840,net:0},
+    {id:"hauling",name:"Hauling Division", color:C.blue, gross:totalGross*0.35,fuel:totalFuel*0.45,crew:crewCost*0.4,maint:320,net:0},
   ].map(e=>({...e,net:e.gross-e.fuel-e.crew-e.maint}));
 
   const pad=mobile?14:26;
@@ -635,31 +634,25 @@ function OwnerPL(){
 }
 
 
-function OwnerDashboard({setView}){
-  const userId=useUserId();
-  const {data:hauls}=useHauls(userId,HAULS);
-  const {data:crew}=useCrew(userId,CREW);
-  const {data:jobSites}=useJobSites(userId,JOB_SITES);
-  const {data:mills}=useMills(userId,MILLS_DATA);
+function OwnerDashboard({setView,user}){
+  const {hauls,crew,jobSites,mills,alerts,tickets}=useAppData();
   const mobile=useMobile();
   const loggingGross=hauls.filter(h=>["Rhinelander NW Block","Lincoln Co. Tract A"].includes(h.jobSite)).reduce((s,h)=>s+h.gross,0);
   const haulingGross=hauls.filter(h=>h.jobSite==="Ashland Co. Plot").reduce((s,h)=>s+h.gross,0);
   const totalCrewCost=crew.filter(c=>c.hourly).reduce((s,c)=>s+(Math.min(c.hours,40)*c.hourly)+(Math.max(0,c.hours-40)*c.hourly*1.5),0);
   const weekNet=hauls.reduce((s,h)=>s+h.net,0);
-  const {data:alertsData}=useAlerts(userId,ALERTS_DATA);
-  const {data:ticketsData}=useTickets(userId,MOCK_TICKETS);
-  const unreadAlerts=alertsData.filter(a=>!a.read).length;
-  const pendingTickets=ticketsData.filter(t=>t.status==="pending_photo").length;
+  const unreadAlerts=alerts.filter(a=>!a.read).length;
+  const pendingTickets=tickets.filter(t=>t.status==="pending_photo").length;
   const entities=[
-    {name:"Harmon Logging LLC",   gross:loggingGross, crew:totalCrewCost*0.6, fuel:hauls.filter(h=>h.jobSite!=="Ashland Co. Plot").reduce((s,h)=>s+h.fuel,0), net:loggingGross-totalCrewCost*0.6-532, color:C.fresh,  EIN:"82-1234567"},
-    {name:"Harmon Hauling LLC",   gross:haulingGross, crew:totalCrewCost*0.4, fuel:hauls.filter(h=>h.jobSite==="Ashland Co. Plot").reduce((s,h)=>s+h.fuel,0),  net:haulingGross-totalCrewCost*0.4-392, color:C.blue,   EIN:"82-7654321"},
+    {name:user?.company||"My Company",   gross:loggingGross, crew:totalCrewCost*0.6, fuel:hauls.filter(h=>h.jobSite!=="Ashland Co. Plot").reduce((s,h)=>s+h.fuel,0), net:loggingGross-totalCrewCost*0.6-532, color:C.fresh,  EIN:""},
+    {name:"Hauling Division",   gross:haulingGross, crew:totalCrewCost*0.4, fuel:hauls.filter(h=>h.jobSite==="Ashland Co. Plot").reduce((s,h)=>s+h.fuel,0),  net:haulingGross-totalCrewCost*0.4-392, color:C.blue,   EIN:""},
   ];
 
   return(
     <div style={{padding:mobile?14:26,maxWidth:1060,margin:"0 auto"}}>
       <Lbl>// Owner Dashboard</Lbl>
-      <H1 size={mobile?28:36} style={{marginTop:5,marginBottom:4}}>GOOD MORNING, <span style={{color:C.purple}}>SANDRA</span></H1>
-      <div style={{fontSize:12,color:C.muted,marginBottom:22}}>Week ending Mar 11 · 2 entities · {hauls.length} hauls this period</div>
+      <H1 size={mobile?28:36} style={{marginTop:5,marginBottom:4}}>GOOD MORNING, <span style={{color:C.purple}}>{(user?.name||"").split(" ")[0].toUpperCase()}</span></H1>
+      <div style={{fontSize:12,color:C.muted,marginBottom:22}}>Week of {new Date().toLocaleDateString("en",{month:"short",day:"numeric"})} · {hauls.length} hauls this period</div>
 
       {/* Alert bar */}
       {(unreadAlerts>0||pendingTickets>0)&&(
@@ -752,7 +745,7 @@ function OwnerDashboard({setView}){
               <Lbl>Recent Tickets</Lbl>
               <Btn v="ghost" size="sm" onClick={()=>setView("tickets")}>All Tickets →</Btn>
             </div>
-            {ticketsData.slice(0,4).map(t=>(
+            {tickets.slice(0,4).map(t=>(
               <div key={t.id} style={{display:"flex",alignItems:"center",gap:12,padding:"8px 0",borderBottom:`1px solid rgba(255,255,255,0.04)`}}>
                 <span style={{fontSize:18,flexShrink:0}}>{OP_TYPES[t.opType]?.icon}</span>
                 <div style={{flex:1}}>
@@ -1029,8 +1022,7 @@ function CashFlowPlanner(){
 // MILL — TICKET VERIFY VIEW
 // ═══════════════════════════════════════════════════════════════════════════
 function MillTicketVerify(){
-  const userId=useUserId();
-  const {data:tickets,setData:setTickets}=useTickets(userId,MOCK_TICKETS);
+  const {tickets,setTickets}=useAppData();
   const mobile=useMobile();
   const [filter,setFilter]=useState("all");
   const [selected,setSelected]=useState(null);
@@ -1285,8 +1277,7 @@ function MillReports(){
 // ADMIN — USERS
 // ═══════════════════════════════════════════════════════════════════════════
 function AdminUsers(){
-  const userId=useUserId();
-  const {data:users,setData:setUsers}=useAllUsers(userId,ALL_USERS);
+  const {users,setUsers}=useAppData();
   const mobile=useMobile();
   const [search,setSearch]=useState("");
   const [planFilter,setPlanFilter]=useState("all");
@@ -1574,7 +1565,7 @@ function Settings({user,activeRole}){
     crewAlerts:true, marketUpdates:false, weeklyDigest:true,
   });
   const [channels,setChannels]=useState({push:true,sms:true,email:false});
-  const [profile,setProfile]=useState({name:user.name,email:"jake@harmonlogging.com",phone:"715-555-0182",company:"Harmon Logging LLC"});
+  const [profile,setProfile]=useState({name:user.name,email:user.email||"",phone:user.phone||"",company:user.company||""});
   const [saved,setSaved]=useState(false);
   const [tab,setTab]=useState("notifications");
   const rc=ROLES[activeRole]?.color||C.gold;
@@ -1722,8 +1713,7 @@ function Settings({user,activeRole}){
 // ONBOARDING — new company setup flow
 // ═══════════════════════════════════════════════════════════════════════════
 function Onboarding({onComplete}){
-  const userId=useUserId();
-  const {data:mills}=useMills(userId,MILLS_DATA);
+  const {mills}=useAppData();
   const [step,setStep]=useState(0);
   const [form,setForm]=useState({
     companyName:"",ein:"",state:"WI",primaryRole:"logger",
@@ -2023,6 +2013,29 @@ export default function MillMarket(){
   const [authLoading,setAuthLoading]=useState(true);
   const mobile=useMobile(); // ← must be before any conditional returns
 
+  // App-level data hooks — called unconditionally (before any early returns)
+  const {data:appMills,setData:setAppMills}=useMills(user?.id||null,MILLS_DATA);
+  const {data:appTickets,setData:setAppTickets}=useTickets(user?.id||null,MOCK_TICKETS);
+  const {data:appJobSites,setData:setAppJobSites}=useJobSites(user?.id||null,JOB_SITES);
+  const {data:appHauls,setData:setAppHauls}=useHauls(user?.id||null,HAULS);
+  const {data:appCrew,setData:setAppCrew}=useCrew(user?.id||null,CREW);
+  const {data:appAlerts,setData:setAppAlerts}=useAlerts(user?.id||null,ALERTS_DATA);
+  const {data:appUsers,setData:setAppUsers}=useAllUsers(user?.id||null,ALL_USERS);
+  const {data:appPendingMills,setData:setAppPendingMills}=usePendingMills(user?.id||null,PENDING_MILLS);
+  const {data:appPendingRates,setData:setAppPendingRates}=usePendingRates(user?.id||null,PENDING_RATES);
+
+  const appData=useMemo(()=>({
+    mills:appMills, setMills:setAppMills,
+    tickets:appTickets, setTickets:setAppTickets,
+    jobSites:appJobSites, setJobSites:setAppJobSites,
+    hauls:appHauls, setHauls:setAppHauls,
+    crew:appCrew, setCrew:setAppCrew,
+    alerts:appAlerts, setAlerts:setAppAlerts,
+    users:appUsers, setUsers:setAppUsers,
+    pendingMills:appPendingMills, setPendingMills:setAppPendingMills,
+    pendingRates:appPendingRates, setPendingRates:setAppPendingRates,
+  }),[appMills,setAppMills,appTickets,setAppTickets,appJobSites,setAppJobSites,appHauls,setAppHauls,appCrew,setAppCrew,appAlerts,setAppAlerts,appUsers,setAppUsers,appPendingMills,setAppPendingMills,appPendingRates,setAppPendingRates]);
+
   // Check for existing Supabase session on mount
   useEffect(()=>{
     let cancelled=false;
@@ -2074,7 +2087,7 @@ export default function MillMarket(){
     </div>
   );
   if(!user) return <AuthScreen onLogin={login}/>;
-  if(onboarding) return <Onboarding onComplete={finishOnboarding}/>;
+  if(onboarding) return <AppDataContext.Provider value={appData}><Onboarding onComplete={finishOnboarding}/></AppDataContext.Provider>;
 
   const rc=ROLES[activeRole]?.color||C.gold;
   const isPrivileged=user.roles?.includes("owner")||user.roles?.includes("admin");
@@ -2083,8 +2096,8 @@ export default function MillMarket(){
     if(view==="settings")    return <Settings user={user} activeRole={activeRole}/>;
 
     if(activeRole==="owner"){
-      if(view==="dashboard")   return <OwnerDashboard setView={setView}/>;
-      if(view==="pl")          return <OwnerPL/>;
+      if(view==="dashboard")   return <OwnerDashboard setView={setView} user={user}/>;
+      if(view==="pl")          return <OwnerPL user={user}/>;
       if(view==="cashflow")    return <CashFlowPlanner/>;
     }
     if(activeRole==="logger"||activeRole==="trucker"){
@@ -2095,7 +2108,7 @@ export default function MillMarket(){
       if(view==="cashflow")    return <CashFlowPlanner/>;
     }
     if(activeRole==="mill"){
-      if(view==="dashboard")   return <MillDashboard setView={setView}/>;
+      if(view==="dashboard")   return <MillDashboard setView={setView} user={user}/>;
       if(view==="rates")       return <MillRates/>;
       if(view==="quotas")      return <MillQuotas/>;
       if(view==="mill_tickets")return <MillTicketVerify/>;
@@ -2110,13 +2123,13 @@ export default function MillMarket(){
     }
 
     // Shared views
-    if(view==="dashboard")   return <LoggerOwnerDashboard setView={setView}/>;
+    if(view==="dashboard")   return <LoggerOwnerDashboard setView={setView} user={user}/>;
     if(view==="haul")        return <HaulCalculator/>;
     if(view==="reports")     return <Reports/>;
     if(view==="submit")      return <RateSubmit/>;
     if(view==="alerts")      return <Alerts/>;
     if(view==="fuellog")     return <FuelLog/>;
-    if(view==="crew")        return <CrewManagement/>;
+    if(view==="crew")        return <CrewManagement user={user}/>;
     if(view==="tickets")     return <LoadTicketsWithAutofill user={user} activeRole={activeRole}/>;
     if(view==="cashflow")    return <CashFlowPlanner/>;
     if(view==="map")         return <MapView user={user} activeRole={activeRole}/>;
@@ -2143,6 +2156,7 @@ export default function MillMarket(){
 
   return(
     <UserIdContext.Provider value={user?.id}>
+    <AppDataContext.Provider value={appData}>
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
@@ -2215,6 +2229,7 @@ export default function MillMarket(){
         </div>
       </div>
     </>
+    </AppDataContext.Provider>
     </UserIdContext.Provider>
   );
 }
@@ -2223,10 +2238,7 @@ export default function MillMarket(){
 // MAP WITH JOB SITE PIN-DROP & SHARE
 // ═══════════════════════════════════════════════════════════════════════════
 function MapView({user,activeRole}){
-  const userId=useUserId();
-  const {data:mills}=useMills(userId,MILLS_DATA);
-  const {data:jobSites,setData:setJobSites}=useJobSites(userId,JOB_SITES);
-  const {data:crewData}=useCrew(userId,CREW);
+  const {mills,jobSites,setJobSites,crew:crewData}=useAppData();
   const mobile=useMobile();
   const [selectedMill,setSelectedMill]=useState(null);
   const [selectedSite,setSelectedSite]=useState(null);
@@ -2239,7 +2251,20 @@ function MapView({user,activeRole}){
   const [pinSaved,setPinSaved]=useState(false);
   const [shareSent,setShareSent]=useState(false);
   const [filterConf,setFilterConf]=useState("all");
+  const [userLoc,setUserLoc]=useState(null);
+  const [locError,setLocError]=useState(null);
+  const [radius,setRadius]=useState(200);
   const isOwnerOrLogger=["owner","logger"].includes(activeRole);
+
+  useEffect(()=>{
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(
+        (pos)=>setUserLoc({lat:pos.coords.latitude,lng:pos.coords.longitude}),
+        (err)=>setLocError(err.message),
+        {enableHighAccuracy:false,timeout:10000}
+      );
+    }
+  },[]);
 
   const savePin=()=>{
     const site={id:`j${Date.now()}`,name:pinForm.name||"New Job Site",lat:newPin.lat,lng:newPin.lng,x:newPin.x,y:newPin.y,county:"—",state:"WI",acres:parseInt(pinForm.acres)||0,species:pinForm.species,estimatedTons:0,completedTons:0,status:"active",color:C.gold,nearestMill:"—",distToMill:0,sharedWith:[],notes:pinForm.notes};
@@ -2250,11 +2275,22 @@ function MapView({user,activeRole}){
   };
   const shareLink=site=>`https://millmarket.com/site/${site?.id}?lat=${site?.lat}&lng=${site?.lng}&name=${encodeURIComponent(site?.name||"")}`;
   const sendShare=()=>{setShareSent(true);setTimeout(()=>setShareModal(null),1400);};
+  function haversineDistance(lat1,lng1,lat2,lng2){
+    const R=3959;
+    const dLat=(lat2-lat1)*Math.PI/180;
+    const dLng=(lng2-lng1)*Math.PI/180;
+    const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+    return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+  }
+
   const filteredMills=mills.filter(m=>{
     if(filterConf==="high") return m.confidence>=80;
     if(filterConf==="accepting") return m.accepting;
     if(filterConf==="low") return m.confidence<70;
     return true;
+  }).filter(m=>{
+    if(!userLoc||!m.lat||!m.lng) return true;
+    return haversineDistance(userLoc.lat,userLoc.lng,m.lat,m.lng)<=radius;
   });
 
   const makeIcon=(color,size=12,selected=false)=>L.divIcon({className:"",iconSize:[size,size],iconAnchor:[size/2,size/2],html:`<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color}cc;border:2px solid ${color};box-shadow:0 0 ${selected?14:7}px ${color}60;"></div>`});
@@ -2265,6 +2301,14 @@ function MapView({user,activeRole}){
     return null;
   }
 
+  function MapAutoCenter({userLoc:loc}){
+    const map=useMapEvents({});
+    useEffect(()=>{
+      if(loc){map.setView([loc.lat,loc.lng],7);}
+    },[loc,map]);
+    return null;
+  }
+
   return(
     <div style={{display:"flex",flexDirection:mobile?"column":"row",height:mobile?"calc(100vh - 48px)":"calc(100vh - 50px)",overflow:"hidden"}}>
       <div style={{flex:1,position:"relative",overflow:"hidden"}}>
@@ -2272,6 +2316,8 @@ function MapView({user,activeRole}){
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" attribution="Esri Satellite"/>
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" opacity={0.5}/>
           <MapClickHandler/>
+          <MapAutoCenter userLoc={userLoc}/>
+          {userLoc&&<Marker position={[userLoc.lat,userLoc.lng]} icon={L.divIcon({className:"",iconSize:[16,16],iconAnchor:[8,8],html:`<div style="width:16px;height:16px;border-radius:50%;background:#2A6B8A;border:3px solid #fff;box-shadow:0 0 10px rgba(42,107,138,0.6)"></div>`})}><Popup>Your Location</Popup></Marker>}
           {tab==="mills"&&filteredMills.map(m=>{
             const cc=confColor(m.confidence);const isSel=selectedMill?.id===m.id;
             return <Marker key={m.id} position={[m.lat,m.lng]} icon={makeIcon(cc,isSel?20:14,isSel)} eventHandlers={{click:()=>{if(!pinMode){setSelectedMill(m);setSelectedSite(null);}}}}>
@@ -2299,11 +2345,18 @@ function MapView({user,activeRole}){
           {tab==="mills"&&<div style={{display:"flex",gap:5}}>{[["all","All"],["high","High Conf"],["accepting","Accepting"],["low","Stale"]].map(([v,l])=>(
             <button key={v} onClick={()=>setFilterConf(v)} style={{padding:"5px 10px",border:`1px solid ${filterConf===v?C.borderHi:C.border}`,borderRadius:14,background:filterConf===v?C.goldDim:"rgba(14,9,4,0.85)",color:filterConf===v?C.gold:C.muted,fontSize:11,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600}}>{l}</button>
           ))}</div>}
+          <div style={{display:"flex",alignItems:"center",gap:8,background:"rgba(14,9,4,0.92)",border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 13px",marginTop:8}}>
+            <span style={{fontSize:10,color:C.muted,whiteSpace:"nowrap"}}>📍 Radius</span>
+            <input type="range" min={25} max={500} step={25} value={radius} onChange={e=>setRadius(Number(e.target.value))} style={{flex:1,accentColor:C.gold,height:4}}/>
+            <span style={{fontSize:11,color:C.gold,fontFamily:"'DM Mono',monospace",minWidth:50,textAlign:"right"}}>{radius} mi</span>
+          </div>
+          {locError&&<div style={{background:"rgba(166,58,26,0.9)",borderRadius:6,padding:"4px 10px",fontSize:10,color:"#fff",marginTop:6}}>📍 Location access denied — showing all mills</div>}
+          {userLoc&&!locError&&<div style={{background:"rgba(42,107,138,0.9)",borderRadius:6,padding:"4px 10px",fontSize:10,color:"#fff",marginTop:6}}>📍 Showing mills within {radius} mi</div>}
         </div>
 
         {tab==="sites"&&isOwnerOrLogger&&<div style={{position:"absolute",bottom:20,left:"50%",transform:"translateX(-50%)",zIndex:1000}}><Btn onClick={()=>{setPinMode(!pinMode);setSelectedSite(null);}} v={pinMode?"danger":"gold"} size="lg" style={{borderRadius:24,boxShadow:"0 4px 20px rgba(0,0,0,0.6)"}}>{pinMode?"✕ Cancel":"📍 Drop Job Site Pin"}</Btn></div>}
 
-        <div style={{position:"absolute",bottom:20,left:14,background:"rgba(14,9,4,0.92)",border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 13px",display:"flex",gap:14,zIndex:1000}}>
+        <div style={{position:"absolute",bottom:20,right:14,background:"rgba(14,9,4,0.92)",border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 13px",display:"flex",gap:14,zIndex:1000}}>
           {(tab==="mills"?[[C.fresh,"Mill-Verified"],[C.gold,"User-Reported"],[C.rust,"Stale/Closed"]]:[[C.fresh,"Active"],[C.blue,"Shared"],[C.steel,"Complete"],[C.gold,"New"]]).map(([c,l])=>(
             <div key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:C.muted}}><div style={{width:7,height:7,borderRadius:"50%",background:c}}/>{l}</div>
           ))}
@@ -2319,7 +2372,7 @@ function MapView({user,activeRole}){
                 <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:18,letterSpacing:1,lineHeight:1.1,flex:1}}>{selectedMill.name}</div>
                 {selectedMill.verified?<Badge color={C.fresh}>✓ VERIFIED</Badge>:<Badge color={C.rust}>UNVERIFIED</Badge>}
               </div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:8}}>📍 {selectedMill.state}</div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:8}}>📍 {selectedMill.state}{userLoc&&selectedMill.lat?` · ${Math.round(haversineDistance(userLoc.lat,userLoc.lng,selectedMill.lat,selectedMill.lng))} mi away`:""}</div>
               <div style={{marginBottom:8}}>{selectedMill.accepting?<Badge color={C.fresh} dot>Accepting Loads</Badge>:<Badge color={C.rust}>🚫 Closed</Badge>}</div>
               <ConfBar score={selectedMill.confidence}/>
               <div style={{fontSize:9,color:C.muted,marginTop:4}}>Confidence {selectedMill.confidence}%</div>
@@ -2452,9 +2505,7 @@ function MapView({user,activeRole}){
 // LOAD TICKETS WITH AUTOFILL
 // ═══════════════════════════════════════════════════════════════════════════
 function LoadTicketsWithAutofill({user,activeRole}){
-  const userId=useUserId();
-  const {data:tickets,setData:setTickets}=useTickets(userId,MOCK_TICKETS);
-  const {data:mills}=useMills(userId,MILLS_DATA);
+  const {tickets,setTickets,mills}=useAppData();
   const [newModal,setNewModal]=useState(false);
   const [viewTicket,setViewTicket]=useState(null);
   const [photoFile,setPhotoFile]=useState(null);
@@ -2668,12 +2719,11 @@ function LoadTicketsWithAutofill({user,activeRole}){
 }
 
 // ─── Shared view stubs ───
-function LoggerOwnerDashboard({setView}){
-  return <OwnerDashboard setView={setView}/>;
+function LoggerOwnerDashboard({setView,user}){
+  return <OwnerDashboard setView={setView} user={user}/>;
 }
 function TruckerDashboard({setView}){
-  const userId=useUserId();
-  const {data:hauls}=useHauls(userId,HAULS);
+  const {hauls}=useAppData();
   const mobile=useMobile();
   const weekNet=hauls.slice(0,5).reduce((s,h)=>s+h.net,0);
   return(
@@ -2693,15 +2743,14 @@ function TruckerDashboard({setView}){
     </div>
   );
 }
-function MillDashboard({setView}){
-  const userId=useUserId();
-  const {data:mills}=useMills(userId,MILLS_DATA);
+function MillDashboard({setView,user}){
+  const {mills}=useAppData();
   const mobile=useMobile();
   const mill=mills[0];
   return(
     <div style={{padding:mobile?14:26,maxWidth:960,margin:"0 auto"}}>
       <Lbl>// Mill Dashboard</Lbl>
-      <H1 size={mobile?24:36} style={{marginTop:5,marginBottom:20}}>WEYERHAEUSER — <span style={{color:C.gold}}>MARSHFIELD</span></H1>
+      <H1 size={mobile?24:36} style={{marginTop:5,marginBottom:20}}>{mill?.name?.split("—")[0]?.trim()||"MILL"} — <span style={{color:C.gold}}>{mill?.name?.split("—")[1]?.trim()||"DASHBOARD"}</span></H1>
       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:20}}>
         <StatCard label="Quota Used"  value={`${mill.quotaUsed}t`}       color={C.gold}   icon="📦" sub={`of ${mill.quotaMax}t`}/>
         <StatCard label="Confidence"  value={`${mill.confidence}%`}      color={C.fresh}  icon="📊"/>
@@ -2737,8 +2786,7 @@ function AdminDashboard(){
   );
 }
 function MillVerification(){
-  const userId=useUserId();
-  const {data:mills,setData:setMills}=usePendingMills(userId,PENDING_MILLS);
+  const {pendingMills:mills,setPendingMills:setMills}=useAppData();
   const mobile=useMobile();
   const [sel,setSel]=useState(null);
   return(
@@ -2774,8 +2822,7 @@ function MillVerification(){
   );
 }
 function RateModeration(){
-  const userId=useUserId();
-  const {data:rates,setData:setRates}=usePendingRates(userId,PENDING_RATES);
+  const {pendingRates:rates,setPendingRates:setRates}=useAppData();
   const mobile=useMobile();
   return(
     <div style={{padding:mobile?14:26,maxWidth:900,margin:"0 auto"}}>
@@ -2813,8 +2860,7 @@ function RateModeration(){
   );
 }
 function MillRates(){
-  const userId=useUserId();
-  const {data:millsData}=useMills(userId,MILLS_DATA);
+  const {mills:millsData}=useAppData();
   const mobile=useMobile();
   const [tab,setTab]=useState("current");
   const [rates,setRates]=useState({...millsData[0].rates});
@@ -3056,9 +3102,7 @@ function HaulCalculator(){
   );
 }
 function Reports(){
-  const userId=useUserId();
-  const {data:hauls}=useHauls(userId,HAULS);
-  const {data:mills}=useMills(userId,MILLS_DATA);
+  const {hauls,mills}=useAppData();
   const mobile=useMobile();
   const [tab,setTab]=useState("profitability");
   const tabs=[{id:"profitability",icon:"💰",label:"Profitability"},{id:"trends",icon:"📈",label:"Rate Trends"},{id:"mill_compare",icon:"🏭",label:"Mill Compare"}];
@@ -3135,8 +3179,7 @@ function Reports(){
   );
 }
 function RateSubmit(){
-  const userId=useUserId();
-  const {data:mills}=useMills(userId,MILLS_DATA);
+  const {mills}=useAppData();
   const mobile=useMobile();
   const [step,setStep]=useState(1);const [done,setDone]=useState(false);
   const [form,setForm]=useState({mill:"",species:"",rate:"",opType:"tree_length",source:"personal"});
@@ -3154,8 +3197,7 @@ function RateSubmit(){
   );
 }
 function Alerts(){
-  const userId=useUserId();
-  const {data:alerts,setData:setAlerts}=useAlerts(userId,ALERTS_DATA);
+  const {alerts,setAlerts}=useAppData();
   const mobile=useMobile();
   const typeColor={rate:C.gold,quota:C.blue,ticket:C.steel,crew:C.fresh,market:C.rust};
   const typeIcon={rate:"💲",quota:"📦",ticket:"🎫",crew:"👥",market:"📉"};
@@ -3263,9 +3305,8 @@ function FuelLog(){
 const MACHINE_TYPES=["Feller Buncher","Skidder","Processor","Loader","Forwarder","Log Truck","Service Truck","Chipper","Excavator","Other"];
 const MACHINE_MAKES=["John Deere","Tigercat","Komatsu","Ponsse","Caterpillar","Volvo","Peterbilt","Kenworth","Mack","International","Other"];
 
-function CrewManagement(){
-  const userId=useUserId();
-  const {data:crew,setData:setCrew}=useCrew(userId,CREW);
+function CrewManagement({user}){
+  const {crew,setCrew}=useAppData();
   const mobile=useMobile();
   const [machines,setMachines]=useState([
     {id:"m1",name:"Tigercat 822D",  type:"Feller Buncher",make:"Tigercat",  year:2021,assignedTo:"Dale Schultz", hours:4820,nextService:5000,status:"active"},
@@ -3283,7 +3324,7 @@ function CrewManagement(){
   const [notifyModal,setNotifyModal]=useState(false);
   const [saved,setSaved]=useState(false);
 
-  const [crewForm,setCrewForm]=useState({name:"",role:"Feller Operator",hourly:"",entity:"Harmon Logging LLC",machine:"",phone:"",email:"",isContractor:false});
+  const [crewForm,setCrewForm]=useState({name:"",role:"Feller Operator",hourly:"",entity:user?.company||"",machine:"",phone:"",email:"",isContractor:false});
   const [machineForm,setMachineForm]=useState({name:"",type:"Feller Buncher",make:"John Deere",year:new Date().getFullYear(),assignedTo:"",hours:"",nextService:""});
 
   const hc=f=>e=>setCrewForm(p=>({...p,[f]:e.target.type==="checkbox"?e.target.checked:e.target.value}));
@@ -3296,7 +3337,7 @@ function CrewManagement(){
       setCrew(cs=>[...cs,{id:`c${Date.now()}`,hours:0,status:"active",...crewForm,hourly:crewForm.isContractor?null:parseFloat(crewForm.hourly)||0}]);
     }
     setAddCrewModal(false);setEditCrew(null);
-    setCrewForm({name:"",role:"Feller Operator",hourly:"",entity:"Harmon Logging LLC",machine:"",phone:"",email:"",isContractor:false});
+    setCrewForm({name:"",role:"Feller Operator",hourly:"",entity:user?.company||"",machine:"",phone:"",email:"",isContractor:false});
     setSaved(true);setTimeout(()=>setSaved(false),1500);
   };
 
@@ -3312,7 +3353,7 @@ function CrewManagement(){
   };
 
   const openEditCrew=(c)=>{
-    setCrewForm({name:c.name,role:c.role||"",hourly:c.hourly?.toString()||"",entity:c.entity||"Harmon Logging LLC",machine:c.machine||"",phone:c.phone||"",email:c.email||"",isContractor:!c.hourly});
+    setCrewForm({name:c.name,role:c.role||"",hourly:c.hourly?.toString()||"",entity:c.entity||user?.company||"",machine:c.machine||"",phone:c.phone||"",email:c.email||"",isContractor:!c.hourly});
     setEditCrew(c);setAddCrewModal(true);
   };
   const openEditMachine=(m)=>{
@@ -3486,8 +3527,9 @@ function CrewManagement(){
                 {["Feller Operator","Skidder Operator","Loader Operator","Processor Operator","Forwarder Operator","Truck Driver","Equipment Mechanic","Site Supervisor","Laborer","Other"].map(r=><option key={r}>{r}</option>)}
               </Sel>
               <Sel label="Entity" value={crewForm.entity} onChange={hc("entity")}>
-                <option>Harmon Logging LLC</option>
-                <option>Harmon Hauling LLC</option>
+                {user?.company&&<option>{user.company}</option>}
+                <option>Hauling Division</option>
+                <option>Other</option>
               </Sel>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:crewForm.isContractor?C.steelDim:"rgba(14,9,4,0.5)",border:`1px solid ${crewForm.isContractor?"rgba(122,138,150,0.28)":C.border}`,borderRadius:5}}>
