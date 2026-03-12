@@ -1557,7 +1557,7 @@ function AdminIntegrations(){
 // ═══════════════════════════════════════════════════════════════════════════
 // SETTINGS
 // ═══════════════════════════════════════════════════════════════════════════
-function Settings({user,activeRole}){
+function Settings({user,activeRole,onLogout}){
   const mobile=useMobile();
   const [notifs,setNotifs]=useState({
     rateAlerts:true, quotaAlerts:true, ticketReminders:true,
@@ -1569,7 +1569,104 @@ function Settings({user,activeRole}){
   const [tab,setTab]=useState("notifications");
   const rc=ROLES[activeRole]?.color||C.gold;
 
-  const save=()=>{setSaved(true);setTimeout(()=>setSaved(false),1600);};
+  // Password state
+  const [pw,setPw]=useState({current:"",next:"",confirm:""});
+  const [pwMsg,setPwMsg]=useState("");const [pwErr,setPwErr]=useState("");
+  // 2FA state
+  const [mfaLoading,setMfaLoading]=useState(false);const [mfaMsg,setMfaMsg]=useState("");const [mfaQR,setMfaQR]=useState(null);const [mfaCode,setMfaCode]=useState("");const [mfaFactorId,setMfaFactorId]=useState(null);
+  // Push notification state
+  const [pushStatus,setPushStatus]=useState(typeof Notification!=="undefined"?Notification.permission:"default");
+  // Danger zone state
+  const [confirmDelete,setConfirmDelete]=useState(false);const [confirmClose,setConfirmClose]=useState(false);
+  const [dangerMsg,setDangerMsg]=useState("");const [dangerLoading,setDangerLoading]=useState(false);
+
+  const save=async()=>{
+    if(!isDemo(user.id)){
+      try{
+        const {supabase}=await import("./lib/supabase.js");
+        await supabase.from("profiles").upsert({id:user.id,name:profile.name,phone:profile.phone});
+      }catch(e){console.error("Save profile error:",e);}
+    }
+    setSaved(true);setTimeout(()=>setSaved(false),1600);
+  };
+
+  const updatePassword=async()=>{
+    setPwMsg("");setPwErr("");
+    if(pw.next!==pw.confirm){setPwErr("Passwords do not match");return;}
+    if(pw.next.length<6){setPwErr("Password must be at least 6 characters");return;}
+    try{
+      const {supabase}=await import("./lib/supabase.js");
+      const {error}=await supabase.auth.updateUser({password:pw.next});
+      if(error)throw error;
+      setPwMsg("Password updated successfully");setPw({current:"",next:"",confirm:""});
+    }catch(e){setPwErr(e.message||"Failed to update password");}
+  };
+
+  const enroll2FA=async()=>{
+    setMfaLoading(true);setMfaMsg("");
+    try{
+      const {supabase}=await import("./lib/supabase.js");
+      const {data,error}=await supabase.auth.mfa.enroll({factorType:"totp",friendlyName:"MillMarket"});
+      if(error)throw error;
+      setMfaQR(data.totp.qr_code);setMfaFactorId(data.id);
+    }catch(e){setMfaMsg(e.message||"Failed to start 2FA enrollment");}
+    setMfaLoading(false);
+  };
+
+  const verify2FA=async()=>{
+    setMfaMsg("");
+    try{
+      const {supabase}=await import("./lib/supabase.js");
+      const {data:challenge,error:cErr}=await supabase.auth.mfa.challenge({factorId:mfaFactorId});
+      if(cErr)throw cErr;
+      const {error:vErr}=await supabase.auth.mfa.verify({factorId:mfaFactorId,challengeId:challenge.id,code:mfaCode});
+      if(vErr)throw vErr;
+      setMfaMsg("2FA enabled successfully!");setMfaQR(null);setMfaCode("");
+    }catch(e){setMfaMsg(e.message||"Invalid code — try again");}
+  };
+
+  const requestPush=async()=>{
+    if(typeof Notification==="undefined")return;
+    const perm=await Notification.requestPermission();
+    setPushStatus(perm);
+    if(perm==="granted") new Notification("MillMarket",{body:"Push notifications enabled!"});
+  };
+
+  const deleteData=async()=>{
+    setDangerLoading(true);setDangerMsg("");
+    try{
+      const {supabase}=await import("./lib/supabase.js");
+      await Promise.all([
+        supabase.from("tickets").delete().eq("user_id",user.id),
+        supabase.from("hauls").delete().eq("user_id",user.id),
+        supabase.from("job_sites").delete().eq("user_id",user.id),
+        supabase.from("crew_members").delete().eq("user_id",user.id),
+        supabase.from("alerts").delete().eq("user_id",user.id),
+      ]);
+      setDangerMsg("All data deleted successfully");setConfirmDelete(false);
+    }catch(e){setDangerMsg(e.message||"Failed to delete data");}
+    setDangerLoading(false);
+  };
+
+  const closeAccount=async()=>{
+    setDangerLoading(true);setDangerMsg("");
+    try{
+      const {supabase}=await import("./lib/supabase.js");
+      // Delete user data first
+      await Promise.all([
+        supabase.from("tickets").delete().eq("user_id",user.id),
+        supabase.from("hauls").delete().eq("user_id",user.id),
+        supabase.from("job_sites").delete().eq("user_id",user.id),
+        supabase.from("crew_members").delete().eq("user_id",user.id),
+        supabase.from("alerts").delete().eq("user_id",user.id),
+        supabase.from("profiles").delete().eq("id",user.id),
+      ]);
+      // Sign out (account deletion requires admin API — user is signed out and data wiped)
+      await supabase.auth.signOut();
+      if(onLogout)onLogout();
+    }catch(e){setDangerMsg(e.message||"Failed to close account");}
+    setDangerLoading(false);
+  };
 
   const tabs=[
     {id:"notifications",icon:"🔔",label:"Notifications"},
@@ -1593,8 +1690,12 @@ function Settings({user,activeRole}){
                 <div>
                   <div style={{fontSize:13,fontWeight:600}}>{label}</div>
                   <div style={{fontSize:11,color:C.muted}}>{sub}</div>
+                  {key==="push"&&pushStatus==="denied"&&<div style={{fontSize:10,color:C.rust,marginTop:2}}>Blocked by browser — update in site settings</div>}
+                  {key==="push"&&pushStatus==="default"&&<Btn v="blue" size="sm" style={{marginTop:4}} onClick={requestPush}>Enable Push Notifications</Btn>}
+                  {key==="push"&&pushStatus==="granted"&&<div style={{fontSize:10,color:C.fresh,marginTop:2}}>Push enabled</div>}
+                  {key==="sms"&&channels.sms&&<Inp label="" placeholder="Phone for SMS" value={profile.phone} onChange={e=>setProfile(p=>({...p,phone:e.target.value}))} style={{marginTop:6}}/>}
                 </div>
-                <Toggle checked={channels[key]} onChange={v=>setChannels(c=>({...c,[key]:v}))}/>
+                <Toggle checked={channels[key]} onChange={v=>{setChannels(c=>({...c,[key]:v}));if(key==="push"&&v&&pushStatus==="default")requestPush();}}/>
               </div>
             ))}
           </Card>
@@ -1676,29 +1777,58 @@ function Settings({user,activeRole}){
           <Card>
             <Lbl style={{marginBottom:14}}>Change Password</Lbl>
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <Inp label="Current Password" type="password" placeholder="••••••••" value="" onChange={()=>{}}/>
-              <Inp label="New Password"     type="password" placeholder="••••••••" value="" onChange={()=>{}}/>
-              <Inp label="Confirm Password" type="password" placeholder="••••••••" value="" onChange={()=>{}}/>
-              <Btn size="sm">Update Password</Btn>
+              <Inp label="Current Password" type="password" placeholder="••••••••" value={pw.current} onChange={e=>setPw(p=>({...p,current:e.target.value}))}/>
+              <Inp label="New Password"     type="password" placeholder="••••••••" value={pw.next} onChange={e=>setPw(p=>({...p,next:e.target.value}))}/>
+              <Inp label="Confirm Password" type="password" placeholder="••••••••" value={pw.confirm} onChange={e=>setPw(p=>({...p,confirm:e.target.value}))}/>
+              {pwErr&&<div style={{padding:"6px 10px",background:C.rustDim,border:`1px solid ${C.rustBorder}`,borderRadius:4,fontSize:11,color:C.rust}}>{pwErr}</div>}
+              {pwMsg&&<div style={{padding:"6px 10px",background:C.freshDim,border:`1px solid ${C.freshBorder}`,borderRadius:4,fontSize:11,color:C.fresh}}>{pwMsg}</div>}
+              <Btn size="sm" onClick={updatePassword} disabled={!pw.next||!pw.confirm}>Update Password</Btn>
             </div>
           </Card>
           <Card>
             <Lbl style={{marginBottom:10}}>Two-Factor Authentication</Lbl>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div style={{fontSize:13,color:C.muted}}>Protect your account with an authenticator app or SMS code.</div>
-              <Btn v="blue" size="sm">Enable 2FA</Btn>
-            </div>
+            {mfaQR?(
+              <div style={{display:"flex",flexDirection:"column",gap:12,alignItems:"center"}}>
+                <div style={{fontSize:12,color:C.muted,textAlign:"center"}}>Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)</div>
+                <img src={mfaQR} alt="2FA QR Code" style={{width:200,height:200,borderRadius:8,background:"#fff",padding:8}}/>
+                <Inp label="Enter 6-digit code" placeholder="000000" value={mfaCode} onChange={e=>setMfaCode(e.target.value)} style={{maxWidth:200,textAlign:"center"}}/>
+                {mfaMsg&&<div style={{fontSize:11,color:mfaMsg.includes("success")?C.fresh:C.rust}}>{mfaMsg}</div>}
+                <div style={{display:"flex",gap:8}}>
+                  <Btn v="outline" size="sm" onClick={()=>{setMfaQR(null);setMfaCode("");}}>Cancel</Btn>
+                  <Btn v="blue" size="sm" onClick={verify2FA} disabled={mfaCode.length!==6}>Verify & Enable</Btn>
+                </div>
+              </div>
+            ):(
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontSize:13,color:C.muted}}>Protect your account with an authenticator app.</div>
+                  <Btn v="blue" size="sm" onClick={enroll2FA} disabled={mfaLoading}>{mfaLoading?"Setting up…":"Enable 2FA"}</Btn>
+                </div>
+                {mfaMsg&&<div style={{fontSize:11,color:mfaMsg.includes("success")?C.fresh:C.rust,marginTop:8}}>{mfaMsg}</div>}
+              </div>
+            )}
           </Card>
           <Card style={{border:`1px solid ${C.rustBorder}`}}>
             <Lbl color={C.rust} style={{marginBottom:10}}>Danger Zone</Lbl>
+            {dangerMsg&&<div style={{padding:"6px 10px",background:dangerMsg.includes("success")?C.freshDim:C.rustDim,border:`1px solid ${dangerMsg.includes("success")?C.freshBorder:C.rustBorder}`,borderRadius:4,fontSize:11,color:dangerMsg.includes("success")?C.fresh:C.rust,marginBottom:10}}>{dangerMsg}</div>}
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid rgba(255,255,255,0.04)`}}>
                 <div><div style={{fontSize:13}}>Delete all my data</div><div style={{fontSize:11,color:C.muted}}>Permanently remove all tickets, hauls, and preferences</div></div>
-                <Btn v="danger" size="sm">Delete Data</Btn>
+                {confirmDelete?(
+                  <div style={{display:"flex",gap:6}}>
+                    <Btn v="outline" size="sm" onClick={()=>setConfirmDelete(false)}>Cancel</Btn>
+                    <Btn v="danger" size="sm" onClick={deleteData} disabled={dangerLoading}>{dangerLoading?"Deleting…":"Confirm Delete"}</Btn>
+                  </div>
+                ):<Btn v="danger" size="sm" onClick={()=>setConfirmDelete(true)}>Delete Data</Btn>}
               </div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0"}}>
                 <div><div style={{fontSize:13}}>Close account</div><div style={{fontSize:11,color:C.muted}}>This cannot be undone</div></div>
-                <Btn v="danger" size="sm">Close Account</Btn>
+                {confirmClose?(
+                  <div style={{display:"flex",gap:6}}>
+                    <Btn v="outline" size="sm" onClick={()=>setConfirmClose(false)}>Cancel</Btn>
+                    <Btn v="danger" size="sm" onClick={closeAccount} disabled={dangerLoading}>{dangerLoading?"Closing…":"Confirm Close"}</Btn>
+                  </div>
+                ):<Btn v="danger" size="sm" onClick={()=>setConfirmClose(true)}>Close Account</Btn>}
               </div>
             </div>
           </Card>
@@ -2129,7 +2259,7 @@ export default function MillMarket(){
   const isPrivileged=user.roles?.includes("owner")||user.roles?.includes("admin");
 
   const renderView=()=>{
-    if(view==="settings")    return <Settings user={user} activeRole={activeRole}/>;
+    if(view==="settings")    return <Settings user={user} activeRole={activeRole} onLogout={()=>{setUser(null);setActiveRole(null);setView("dashboard");}}/>;
 
     if(activeRole==="owner"){
       if(view==="dashboard")   return <OwnerDashboard setView={setView} user={user}/>;
@@ -2168,7 +2298,7 @@ export default function MillMarket(){
     if(view==="crew")        return <CrewManagement user={user}/>;
     if(view==="tickets")     return <LoadTicketsWithAutofill user={user} activeRole={activeRole}/>;
     if(view==="cashflow")    return <CashFlowPlanner/>;
-    if(view==="map")         return <MapView user={user} activeRole={activeRole}/>;
+    if(view==="map")         return <MapView user={user} activeRole={activeRole} setView={setView}/>;
 
     if(view==="integration"&&!isPrivileged) return(
       <div style={{padding:60,maxWidth:480,margin:"0 auto",textAlign:"center"}}>
@@ -2278,7 +2408,7 @@ export default function MillMarket(){
 // ═══════════════════════════════════════════════════════════════════════════
 // MAP WITH JOB SITE PIN-DROP & SHARE
 // ═══════════════════════════════════════════════════════════════════════════
-function MapView({user,activeRole}){
+function MapView({user,activeRole,setView:parentSetView}){
   const {mills,jobSites,setJobSites,crew:crewData}=useAppData();
   const mobile=useMobile();
   const [selectedMill,setSelectedMill]=useState(null);
@@ -2438,8 +2568,8 @@ function MapView({user,activeRole}){
                 </div>
               ))}
               <div style={{marginTop:14,display:"flex",flexDirection:"column",gap:7}}>
-                <Btn full size="sm">🚛 Plan Haul to This Mill</Btn>
-                <Btn v="outline" full size="sm">📝 Submit Rate Update</Btn>
+                <Btn full size="sm" onClick={()=>parentSetView&&parentSetView("haul")}>🚛 Plan Haul to This Mill</Btn>
+                <Btn v="outline" full size="sm" onClick={()=>parentSetView&&parentSetView("submit")}>📝 Submit Rate Update</Btn>
               </div>
             </div>
           </div>
@@ -2498,8 +2628,8 @@ function MapView({user,activeRole}){
           </div>
           <div style={{padding:14}}>
             <div style={{display:"flex",flexDirection:"column",gap:7}}>
-              <Btn full size="sm">🚛 Plan Haul to This Mill</Btn>
-              <Btn v="outline" full size="sm">📝 Submit Rate Update</Btn>
+              <Btn full size="sm" onClick={()=>parentSetView&&parentSetView("haul")}>🚛 Plan Haul to This Mill</Btn>
+              <Btn v="outline" full size="sm" onClick={()=>parentSetView&&parentSetView("submit")}>📝 Submit Rate Update</Btn>
             </div>
           </div>
         </div>)}
@@ -2605,6 +2735,10 @@ function LoadTicketsWithAutofill({user,activeRole}){
   },[mills,userLoc,jobSites]);
   const [newModal,setNewModal]=useState(false);
   const [viewTicket,setViewTicket]=useState(null);
+  const [editingTicket,setEditingTicket]=useState(false);
+  const [editForm,setEditForm]=useState({date:"",mill:"",jobSite:"",species:"",rate:"",scaleTons:"",mbf:""});
+  const [photoLightbox,setPhotoLightbox]=useState(null);
+  const isOwner=activeRole==="owner";
   const [photoFile,setPhotoFile]=useState(null);
   const [photoPreview,setPhotoPreview]=useState(null);
   const fileInputRef=useRef(null);
@@ -2682,8 +2816,8 @@ function LoadTicketsWithAutofill({user,activeRole}){
                   </div>
                   <div style={{display:"flex",gap:10,alignItems:"center"}}>
                     <Mono style={{color:C.fresh,fontSize:13}}>{fmt$(t.gross,2)}</Mono>
-                    {t.photo&&<span style={{color:C.fresh}}>📸</span>}
-                    {t.millVerified?<span style={{color:C.fresh}}>✓</span>:isMill?<button onClick={e=>{e.stopPropagation();setTickets(p=>p.map(x=>x.id===t.id?{...x,millVerified:true,status:"verified"}:x));}} style={{fontSize:10,color:C.blue,background:"transparent",border:`1px solid ${C.blueBorder}`,borderRadius:3,padding:"2px 6px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Verify</button>:null}
+                    {t.photo&&(t._photoPreview||t.photoUrl?<img src={t._photoPreview||t.photoUrl} alt="" style={{width:22,height:22,objectFit:"cover",borderRadius:3,border:`1px solid ${C.fresh}`,cursor:"pointer"}} onClick={e=>{e.stopPropagation();setPhotoLightbox(t._photoPreview||t.photoUrl);}}/>:<span style={{color:C.fresh}}>📸</span>)}
+                    {t.millVerified?<span style={{color:C.fresh}}>✓</span>:(isMill||isOwner)?<button onClick={e=>{e.stopPropagation();setTickets(p=>p.map(x=>x.id===t.id?{...x,millVerified:true,status:"verified"}:x));}} style={{fontSize:10,color:C.blue,background:"transparent",border:`1px solid ${C.blueBorder}`,borderRadius:3,padding:"2px 6px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Verify</button>:null}
                   </div>
                 </div>
               </Card>
@@ -2709,9 +2843,9 @@ function LoadTicketsWithAutofill({user,activeRole}){
                     <td style={{padding:"9px 9px"}}><Mono>{fmt$(t.rate,2)}</Mono></td>
                     <td style={{padding:"9px 9px"}}><Mono style={{color:C.fresh}}>{fmt$(t.gross,2)}</Mono></td>
                     <td style={{padding:"9px 9px"}}><Badge color={statusColor[t.status]||C.muted}>{statusLabel[t.status]||t.status}</Badge></td>
-                    <td style={{padding:"9px 9px",textAlign:"center"}}>{t.photo?<span style={{color:C.fresh}}>📸</span>:<span style={{color:C.rust,fontSize:11}}>—</span>}</td>
+                    <td style={{padding:"9px 9px",textAlign:"center"}}>{t.photo?(t._photoPreview||t.photoUrl?<img src={t._photoPreview||t.photoUrl} alt="" style={{width:20,height:20,objectFit:"cover",borderRadius:3,border:`1px solid ${C.fresh}`,cursor:"pointer"}} onClick={e=>{e.stopPropagation();setPhotoLightbox(t._photoPreview||t.photoUrl);}}/>:<span style={{color:C.fresh}}>📸</span>):<span style={{color:C.rust,fontSize:11}}>—</span>}</td>
                     <td style={{padding:"9px 9px",textAlign:"center"}}>
-                      {t.millVerified?<span style={{color:C.fresh}}>✓</span>:isMill?<button onClick={e=>{e.stopPropagation();setTickets(p=>p.map(x=>x.id===t.id?{...x,millVerified:true,status:"verified"}:x));}} style={{fontSize:10,color:C.blue,background:"transparent",border:`1px solid ${C.blueBorder}`,borderRadius:3,padding:"2px 6px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Verify</button>:<span style={{color:C.muted,fontSize:11}}>—</span>}
+                      {t.millVerified?<span style={{color:C.fresh}}>✓</span>:(isMill||isOwner)?<button onClick={e=>{e.stopPropagation();setTickets(p=>p.map(x=>x.id===t.id?{...x,millVerified:true,status:"verified"}:x));}} style={{fontSize:10,color:C.blue,background:"transparent",border:`1px solid ${C.blueBorder}`,borderRadius:3,padding:"2px 6px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Verify</button>:<span style={{color:C.muted,fontSize:11}}>—</span>}
                     </td>
                   </tr>
                 );
@@ -2722,56 +2856,99 @@ function LoadTicketsWithAutofill({user,activeRole}){
       )}
 
       {viewTicket&&(
-        <Modal title={`TICKET ${viewTicket.no}`} onClose={()=>setViewTicket(null)} width={600}>
-          <div style={{display:"grid",gridTemplateColumns:mobile?"1fr":"1fr 1fr",gap:10,marginBottom:14}}>
-            {[["Date",viewTicket.date],["Mill",viewTicket.mill],["Job Site",viewTicket.jobSite],["Species",viewTicket.species],["Operation",OP_TYPES[viewTicket.opType]?.label],["Rate",`${fmt$(viewTicket.rate,2)} / ${OP_TYPES[viewTicket.opType]?.rateUnit}`]].map(([l,v])=>(
-              <div key={l} style={{background:"rgba(14,9,4,0.5)",borderRadius:5,padding:"8px 11px"}}><div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>{l}</div><div style={{fontSize:13,color:C.sawdust}}>{v}</div></div>
-            ))}
-          </div>
-          <div style={{display:"flex",gap:10,marginBottom:14}}>
-            {viewTicket.scaleTons&&<div style={{flex:1,background:"rgba(14,9,4,0.5)",borderRadius:5,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>Scale Tons</div><div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:28,color:C.gold}}>{viewTicket.scaleTons}</div></div>}
-            {viewTicket.mbf&&<div style={{flex:1,background:"rgba(14,9,4,0.5)",borderRadius:5,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>MBF</div><div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:28,color:C.gold}}>{viewTicket.mbf}</div></div>}
-            <div style={{flex:1,background:C.freshDim,border:`1px solid ${C.freshBorder}`,borderRadius:5,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>Gross Revenue</div><div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:28,color:C.fresh}}>{fmt$(viewTicket.gross,2)}</div></div>
-          </div>
-          <div style={{marginBottom:12,padding:12,background:"rgba(14,9,4,0.5)",borderRadius:5,border:`1px solid ${C.border}`}}>
-            <Lbl style={{marginBottom:8}}>Photo Verification</Lbl>
-            <input ref={viewFileInputRef} type="file" accept="image/*" capture="environment" onChange={(e)=>{const f=e.target.files?.[0];if(f){setViewTicket(p=>({...p,photo:true,status:"photo_uploaded",_photoFile:f,_photoPreview:URL.createObjectURL(f)}));setTickets(ts=>ts.map(t=>t.id===viewTicket.id?{...t,photo:true,status:"photo_uploaded"}:t));}}} style={{display:"none"}}/>
-            {viewTicket.photo?(
-              <div>
-                {viewTicket._photoPreview&&<div style={{marginBottom:10}}><img src={viewTicket._photoPreview} alt="Ticket photo" style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,border:`2px solid ${C.fresh}`,background:"rgba(0,0,0,0.3)"}}/></div>}
-                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                  {!viewTicket._photoPreview&&<span style={{fontSize:24}}>📸</span>}
-                  <Badge color={statusColor[viewTicket.status]||C.blue}>{statusLabel[viewTicket.status]||"Photo attached"}</Badge>
-                  <span style={{color:C.fresh,fontSize:12}}>Photo on record</span>
-                </div>
+        <Modal title={editingTicket?`EDIT TICKET ${viewTicket.no}`:`TICKET ${viewTicket.no}`} onClose={()=>{setViewTicket(null);setEditingTicket(false);}} width={600}>
+          {editingTicket?(
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{display:"grid",gridTemplateColumns:mobile?"1fr":"1fr 1fr",gap:10}}>
+                <Inp label="Date" type="date" value={editForm.date} onChange={e=>setEditForm(p=>({...p,date:e.target.value}))}/>
+                <Inp label="Job Site" value={editForm.jobSite} onChange={e=>setEditForm(p=>({...p,jobSite:e.target.value}))}/>
+                <Sel label="Mill" value={editForm.mill} onChange={e=>setEditForm(p=>({...p,mill:e.target.value}))}>
+                  <option value="">Select mill…</option>
+                  {nearestMills.map(m=><option key={m.id} value={m.name}>{m.name}</option>)}
+                </Sel>
+                <Sel label="Species" value={editForm.species} onChange={e=>setEditForm(p=>({...p,species:e.target.value}))}>
+                  <option value="">Select species…</option>
+                  {OP_TYPES[viewTicket.opType]?.species?.map(s=><option key={s}>{s}</option>)}
+                </Sel>
+                <Inp label="Rate" prefix="$" type="number" value={editForm.rate} onChange={e=>setEditForm(p=>({...p,rate:e.target.value}))}/>
+                {viewTicket.opType==="cut_to_length"?<Inp label="MBF" suffix="MBF" type="number" value={editForm.mbf} onChange={e=>setEditForm(p=>({...p,mbf:e.target.value}))}/>:<Inp label="Scale Tons" suffix="tons" type="number" value={editForm.scaleTons} onChange={e=>setEditForm(p=>({...p,scaleTons:e.target.value}))}/>}
               </div>
-            ):(
-              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                <span style={{color:C.rust,fontSize:12}}>⚠ No photo — confidence reduced</span>
-                <Btn v="blue" size="sm" onClick={()=>viewFileInputRef.current?.click()}>📸 Upload Photo</Btn>
-                <span style={{fontSize:11,color:C.muted}}>or email to tickets@millmarket.com</span>
+              <div style={{display:"flex",gap:9}}>
+                <Btn v="outline" full onClick={()=>setEditingTicket(false)}>Cancel</Btn>
+                <Btn full onClick={()=>{
+                  const qty=viewTicket.opType==="cut_to_length"?parseFloat(editForm.mbf)||0:parseFloat(editForm.scaleTons)||0;
+                  const gross=qty*(parseFloat(editForm.rate)||0);
+                  const updated={...viewTicket,...editForm,rate:parseFloat(editForm.rate)||0,scaleTons:viewTicket.opType==="cut_to_length"?null:qty,mbf:viewTicket.opType==="cut_to_length"?qty:null,gross};
+                  setViewTicket(updated);
+                  setTickets(ts=>ts.map(t=>t.id===viewTicket.id?updated:t));
+                  setEditingTicket(false);
+                }}>Save Changes</Btn>
               </div>
-            )}
-          </div>
-          <div style={{marginBottom:12,padding:12,background:"rgba(14,9,4,0.5)",borderRadius:5,border:`1px solid ${C.border}`}}>
-            <Lbl style={{marginBottom:8}}>Verification Status</Lbl>
-            <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
-              {["pending_photo","photo_uploaded","under_review","verified","rejected"].map(s=>(
-                <div key={s} style={{padding:"4px 10px",borderRadius:12,fontSize:10,fontWeight:600,background:viewTicket.status===s?(statusColor[s]||C.steel)+"22":"rgba(14,9,4,0.4)",color:viewTicket.status===s?(statusColor[s]||C.steel):C.muted,border:`1px solid ${viewTicket.status===s?(statusColor[s]||C.steel)+"55":C.border}`}}>{s==="pending_photo"?"⏳ Needs Photo":s==="photo_uploaded"?"📸 Photo Uploaded":s==="under_review"?"🔍 Under Review":s==="verified"?"✓ Verified":s==="rejected"?"✗ Rejected":s}</div>
-              ))}
             </div>
-            {isMill&&!viewTicket.millVerified&&viewTicket.photo&&(
-              <div style={{display:"flex",gap:8,marginTop:8}}>
-                <Btn v="gold" size="sm" onClick={()=>{setViewTicket(p=>({...p,millVerified:true,status:"verified"}));setTickets(ts=>ts.map(t=>t.id===viewTicket.id?{...t,millVerified:true,status:"verified"}:t));}}>✓ Verify Ticket</Btn>
-                <Btn v="danger" size="sm" onClick={()=>{setViewTicket(p=>({...p,status:"rejected"}));setTickets(ts=>ts.map(t=>t.id===viewTicket.id?{...t,status:"rejected"}:t));}}>✗ Reject</Btn>
+          ):(
+            <>
+              <div style={{display:"grid",gridTemplateColumns:mobile?"1fr":"1fr 1fr",gap:10,marginBottom:14}}>
+                {[["Date",viewTicket.date],["Mill",viewTicket.mill],["Job Site",viewTicket.jobSite],["Species",viewTicket.species],["Operation",OP_TYPES[viewTicket.opType]?.label],["Rate",`${fmt$(viewTicket.rate,2)} / ${OP_TYPES[viewTicket.opType]?.rateUnit}`]].map(([l,v])=>(
+                  <div key={l} style={{background:"rgba(14,9,4,0.5)",borderRadius:5,padding:"8px 11px"}}><div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>{l}</div><div style={{fontSize:13,color:C.sawdust}}>{v}</div></div>
+                ))}
               </div>
-            )}
-          </div>
-          <div style={{padding:12,background:"rgba(14,9,4,0.5)",borderRadius:5,border:`1px solid ${C.border}`}}>
-            <Lbl style={{marginBottom:8}}>Mill Counter-Verification</Lbl>
-            {viewTicket.millVerified?<span style={{color:C.fresh,fontSize:13}}>✓ Verified by mill — full confidence weight</span>:viewTicket.status==="rejected"?<span style={{color:C.rust,fontSize:13}}>✗ Rejected by mill</span>:<span style={{color:C.muted,fontSize:12}}>Awaiting mill confirmation</span>}
-          </div>
+              <div style={{display:"flex",gap:10,marginBottom:14}}>
+                {viewTicket.scaleTons&&<div style={{flex:1,background:"rgba(14,9,4,0.5)",borderRadius:5,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>Scale Tons</div><div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:28,color:C.gold}}>{viewTicket.scaleTons}</div></div>}
+                {viewTicket.mbf&&<div style={{flex:1,background:"rgba(14,9,4,0.5)",borderRadius:5,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>MBF</div><div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:28,color:C.gold}}>{viewTicket.mbf}</div></div>}
+                <div style={{flex:1,background:C.freshDim,border:`1px solid ${C.freshBorder}`,borderRadius:5,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>Gross Revenue</div><div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:28,color:C.fresh}}>{fmt$(viewTicket.gross,2)}</div></div>
+              </div>
+              {!viewTicket.millVerified&&viewTicket.status!=="verified"&&!isMill&&(
+                <div style={{marginBottom:12}}>
+                  <Btn v="outline" size="sm" onClick={()=>{setEditForm({date:viewTicket.date||"",mill:viewTicket.mill||"",jobSite:viewTicket.jobSite||"",species:viewTicket.species||"",rate:String(viewTicket.rate||""),scaleTons:String(viewTicket.scaleTons||""),mbf:String(viewTicket.mbf||"")});setEditingTicket(true);}}>Edit Ticket</Btn>
+                </div>
+              )}
+              <div style={{marginBottom:12,padding:12,background:"rgba(14,9,4,0.5)",borderRadius:5,border:`1px solid ${C.border}`}}>
+                <Lbl style={{marginBottom:8}}>Photo Verification</Lbl>
+                <input ref={viewFileInputRef} type="file" accept="image/*" capture="environment" onChange={(e)=>{const f=e.target.files?.[0];if(f){setViewTicket(p=>({...p,photo:true,status:"photo_uploaded",_photoFile:f,_photoPreview:URL.createObjectURL(f)}));setTickets(ts=>ts.map(t=>t.id===viewTicket.id?{...t,photo:true,status:"photo_uploaded"}:t));}}} style={{display:"none"}}/>
+                {viewTicket.photo?(
+                  <div>
+                    {(viewTicket._photoPreview||viewTicket.photoUrl)&&<div style={{marginBottom:10,cursor:"pointer"}} onClick={()=>setPhotoLightbox(viewTicket._photoPreview||viewTicket.photoUrl)}><img src={viewTicket._photoPreview||viewTicket.photoUrl} alt="Ticket photo" style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,border:`2px solid ${C.fresh}`,background:"rgba(0,0,0,0.3)"}}/></div>}
+                    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                      {!viewTicket._photoPreview&&!viewTicket.photoUrl&&<span style={{fontSize:24}}>📸</span>}
+                      <Badge color={statusColor[viewTicket.status]||C.blue}>{statusLabel[viewTicket.status]||"Photo attached"}</Badge>
+                      <span style={{color:C.fresh,fontSize:12}}>Photo on record</span>
+                    </div>
+                  </div>
+                ):(
+                  <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                    <span style={{color:C.rust,fontSize:12}}>⚠ No photo — confidence reduced</span>
+                    <Btn v="blue" size="sm" onClick={()=>viewFileInputRef.current?.click()}>📸 Upload Photo</Btn>
+                    <span style={{fontSize:11,color:C.muted}}>or email to tickets@millmarket.com</span>
+                  </div>
+                )}
+              </div>
+              <div style={{marginBottom:12,padding:12,background:"rgba(14,9,4,0.5)",borderRadius:5,border:`1px solid ${C.border}`}}>
+                <Lbl style={{marginBottom:8}}>Verification Status</Lbl>
+                <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+                  {["pending_photo","photo_uploaded","under_review","verified","rejected"].map(s=>(
+                    <div key={s} style={{padding:"4px 10px",borderRadius:12,fontSize:10,fontWeight:600,background:viewTicket.status===s?(statusColor[s]||C.steel)+"22":"rgba(14,9,4,0.4)",color:viewTicket.status===s?(statusColor[s]||C.steel):C.muted,border:`1px solid ${viewTicket.status===s?(statusColor[s]||C.steel)+"55":C.border}`}}>{s==="pending_photo"?"⏳ Needs Photo":s==="photo_uploaded"?"📸 Photo Uploaded":s==="under_review"?"🔍 Under Review":s==="verified"?"✓ Verified":s==="rejected"?"✗ Rejected":s}</div>
+                  ))}
+                </div>
+                {(isMill||isOwner)&&!viewTicket.millVerified&&viewTicket.photo&&(
+                  <div style={{display:"flex",gap:8,marginTop:8}}>
+                    <Btn v="gold" size="sm" onClick={()=>{setViewTicket(p=>({...p,millVerified:true,status:"verified"}));setTickets(ts=>ts.map(t=>t.id===viewTicket.id?{...t,millVerified:true,status:"verified"}:t));}}>✓ Verify Ticket</Btn>
+                    <Btn v="danger" size="sm" onClick={()=>{setViewTicket(p=>({...p,status:"rejected"}));setTickets(ts=>ts.map(t=>t.id===viewTicket.id?{...t,status:"rejected"}:t));}}>✗ Reject</Btn>
+                  </div>
+                )}
+              </div>
+              <div style={{padding:12,background:"rgba(14,9,4,0.5)",borderRadius:5,border:`1px solid ${C.border}`}}>
+                <Lbl style={{marginBottom:8}}>Mill Counter-Verification</Lbl>
+                {viewTicket.millVerified?<span style={{color:C.fresh,fontSize:13}}>✓ Verified by mill — full confidence weight</span>:viewTicket.status==="rejected"?<span style={{color:C.rust,fontSize:13}}>✗ Rejected by mill</span>:<span style={{color:C.muted,fontSize:12}}>Awaiting mill confirmation</span>}
+              </div>
+            </>
+          )}
         </Modal>
+      )}
+      {photoLightbox&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}} onClick={()=>setPhotoLightbox(null)}>
+          <img src={photoLightbox} alt="Full size" style={{maxWidth:"95vw",maxHeight:"95vh",objectFit:"contain",borderRadius:8}}/>
+          <button style={{position:"absolute",top:20,right:20,background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",fontSize:24,width:40,height:40,borderRadius:"50%",cursor:"pointer"}}>✕</button>
+        </div>
       )}
 
       {newModal&&(
