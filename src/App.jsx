@@ -2362,7 +2362,7 @@ function MapView({user,activeRole}){
   }
 
   return(
-    <div style={{display:"flex",flexDirection:mobile?"column":"row",height:mobile?"calc(100vh - 48px - 64px)":"calc(100vh - 50px)",overflow:"hidden",position:"relative"}}>
+    <div style={{position:"fixed",top:mobile?48:50,left:mobile?0:218,right:0,bottom:mobile?64:0,display:"flex",flexDirection:mobile?"column":"row",overflow:"hidden"}}>
       <div style={{flex:1,position:"relative",overflow:"hidden",minWidth:0}}>
         <MapContainer center={[44.5,-90]} zoom={5} style={{height:"100%",width:"100%",cursor:pinMode?"crosshair":"grab"}} zoomControl={false} attributionControl={false}>
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" attribution="Esri Satellite"/>
