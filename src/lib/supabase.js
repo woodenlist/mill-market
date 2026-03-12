@@ -1,0 +1,17 @@
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+if (!supabaseUrl || !supabasePublishableKey) {
+  throw new Error(
+    "Missing Supabase environment variables. " +
+      "Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in your .env file."
+  );
+}
+
+/**
+ * Shared Supabase client instance for the browser.
+ * Uses the publishable (public) key — all access is governed by RLS policies.
+ */
+export const supabase = createClient(supabaseUrl, supabasePublishableKey);
