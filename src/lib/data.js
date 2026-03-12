@@ -46,7 +46,8 @@ function useSupaQuery(tableName, { userId, select = "*", filters = [], orderBy, 
       if (orderBy) q = q.order(orderBy.col, { ascending: orderBy.asc ?? false });
       const { data: rows, error: e } = await q;
       if (e) throw e;
-      setData(transform ? transform(rows) : rows);
+      const result = transform ? transform(rows) : rows;
+      setData(result && result.length > 0 ? result : mockData);
     } catch (err) {
       setError(err);
       setData(mockData); // fallback

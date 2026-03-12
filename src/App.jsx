@@ -640,9 +640,9 @@ function OwnerDashboard({setView,user}){
   ];
 
   return(
-    <div style={{padding:mobile?14:26,maxWidth:1060,margin:"0 auto"}}>
+    <div style={{padding:mobile?14:26,maxWidth:1040,margin:"0 auto"}}>
       <Lbl>// Owner Dashboard</Lbl>
-      <H1 size={mobile?28:36} style={{marginTop:5,marginBottom:4}}>GOOD MORNING, <span style={{color:C.purple}}>{(user?.name||"").split(" ")[0].toUpperCase()}</span></H1>
+      <H1 size={mobile?28:36} style={{marginTop:5,marginBottom:4}}>{(()=>{const h=new Date().getHours();return h<12?"GOOD MORNING":h<17?"GOOD AFTERNOON":"GOOD EVENING";})()}, <span style={{color:C.purple}}>{(user?.name||"").split(" ")[0].toUpperCase()}</span></H1>
       <div style={{fontSize:12,color:C.muted,marginBottom:22}}>Week of {new Date().toLocaleDateString("en",{month:"short",day:"numeric"})} · {hauls.length} hauls this period</div>
 
       {/* Alert bar */}
@@ -1284,7 +1284,7 @@ function AdminUsers(){
   const planColor={Scout:C.steel,Logger:C.fresh,Contractor:C.blue};
 
   return(
-    <div style={{padding:mobile?14:26,maxWidth:1060,margin:"0 auto"}}>
+    <div style={{padding:mobile?14:26,maxWidth:1040,margin:"0 auto"}}>
       <Lbl>// Admin · Users</Lbl>
       <H1 size={mobile?26:34} style={{marginTop:5,marginBottom:20}}>USER <span style={{color:C.rust}}>MANAGEMENT</span></H1>
 
@@ -1722,7 +1722,7 @@ function Onboarding({onComplete}){
     {title:"You're Ready",     icon:"🎉", desc:"Your platform is configured"},
   ];
 
-  const stateOptions=["WI","MN","MI","MO","ID","OR","WA","GA","NC","VA","ME","NH","VT","NY","PA","OH","IN","IL"];
+  const stateOptions=["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"];
 
   return(
     <div style={{minHeight:"100vh",background:C.ink,display:"flex",alignItems:"center",justifyContent:"center",padding:20,backgroundImage:`radial-gradient(ellipse 55% 50% at 62% 28%,rgba(45,80,22,0.13) 0%,transparent 55%)`}}>
@@ -2187,8 +2187,11 @@ export default function MillMarket(){
                 )}
                 <select value={user.id} onChange={e=>{const u=DEMO_USERS.find(x=>x.id===e.target.value);if(u)login(u);}}
                   style={{fontSize:11,color:C.muted,background:"rgba(14,9,4,0.8)",border:`1px solid ${C.border}`,borderRadius:4,padding:"3px 6px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none",maxWidth:80}}>
-                  {DEMO_USERS.map(u=><option key={u.id} value={u.id}>{ROLES[u.primaryRole]?.icon} {u.name.split(" ")[0]}</option>)}
+                  {!isDemo(user.id)&&<option value={user.id}>{user.name||user.email?.split("@")[0]}</option>}
+                  {!isDemo(user.id)&&<option disabled>── Demo Accounts ──</option>}
+                  {DEMO_USERS.map(u=><option key={u.id} value={u.id}>{ROLES[u.primaryRole]?.icon} {u.name.split(" ")[0]}{u.isNew?" 🆕":""}</option>)}
                 </select>
+                <button onClick={async()=>{try{const {signOut}=await import("./lib/auth.js");await signOut();}catch(e){}setUser(null);setActiveRole(null);setView("dashboard");}} style={{fontSize:18,color:C.muted,background:"transparent",border:"none",cursor:"pointer",padding:"2px 4px"}}>⏻</button>
               </>
             ):(
               <>
@@ -2207,6 +2210,8 @@ export default function MillMarket(){
                   </div>
                   <select value={user.id} onChange={e=>{const u=DEMO_USERS.find(x=>x.id===e.target.value);if(u)login(u);}}
                     style={{fontSize:11,color:C.muted,background:"rgba(14,9,4,0.8)",border:`1px solid ${C.border}`,borderRadius:4,padding:"3px 8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none"}}>
+                    {!isDemo(user.id)&&<option value={user.id}>👤 {user.name||user.email?.split("@")[0]}</option>}
+                    {!isDemo(user.id)&&<option disabled>── Demo Accounts ──</option>}
                     {DEMO_USERS.map(u=><option key={u.id} value={u.id}>{ROLES[u.primaryRole]?.icon} {u.name}{u.isNew?" 🆕":""}</option>)}
                   </select>
                   <button onClick={async()=>{try{const {signOut}=await import("./lib/auth.js");await signOut();}catch(e){}setUser(null);setActiveRole(null);setView("dashboard");}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Sign Out</button>
@@ -2302,8 +2307,8 @@ function MapView({user,activeRole}){
 
   return(
     <div style={{display:"flex",flexDirection:mobile?"column":"row",height:mobile?"calc(100vh - 48px)":"calc(100vh - 50px)",overflow:"hidden"}}>
-      <div style={{flex:1,position:"relative",overflow:"hidden"}}>
-        <MapContainer center={[44.5,-90]} zoom={5} style={{height:"100%",width:"100%"}} zoomControl={false} attributionControl={false}>
+      <div style={{flex:1,position:"relative",overflow:"hidden",minWidth:0}}>
+        <MapContainer center={[44.5,-90]} zoom={5} style={{height:"100%",width:"100%",cursor:pinMode?"crosshair":"grab"}} zoomControl={false} attributionControl={false}>
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" attribution="Esri Satellite"/>
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" opacity={0.5}/>
           <MapClickHandler/>
@@ -2324,7 +2329,7 @@ function MapView({user,activeRole}){
           {newPin&&pinMode&&<Marker position={[newPin.lat,newPin.lng]} icon={makePinIcon(C.gold,28,true)}/>}
         </MapContainer>
 
-        {pinMode&&<div style={{position:"absolute",top:14,left:"50%",transform:"translateX(-50%)",background:"rgba(200,149,42,0.95)",borderRadius:20,padding:"7px 18px",display:"flex",alignItems:"center",gap:10,zIndex:1000,boxShadow:"0 4px 20px rgba(0,0,0,0.5)"}}><span>📍</span><span style={{fontSize:13,fontWeight:700,color:C.ink}}>Click anywhere on the map to drop a job site pin</span><Btn v="ghost" size="sm" onClick={()=>setPinMode(false)} style={{color:C.ink}}>Cancel</Btn></div>}
+        {pinMode&&<div style={{position:"absolute",top:14,left:"50%",transform:"translateX(-50%)",background:"rgba(200,149,42,0.97)",borderRadius:24,padding:"10px 24px",display:"flex",alignItems:"center",gap:12,zIndex:1000,boxShadow:"0 4px 24px rgba(0,0,0,0.6)",border:"2px solid rgba(255,255,255,0.3)",animation:"fadeUp 0.18s ease"}}><span style={{fontSize:20}}>📍</span><div><span style={{fontSize:14,fontWeight:700,color:C.ink}}>PIN DROP MODE</span><br/><span style={{fontSize:12,color:"rgba(14,9,4,0.7)"}}>Click anywhere on the map to place your job site pin</span></div><Btn v="ghost" size="sm" onClick={()=>setPinMode(false)} style={{color:C.ink,border:`1px solid rgba(14,9,4,0.3)`,borderRadius:14}}>✕ Cancel</Btn></div>}
         {pinSaved&&<div style={{position:"absolute",top:14,left:"50%",transform:"translateX(-50%)",background:"rgba(90,138,42,0.95)",borderRadius:20,padding:"7px 18px",display:"flex",alignItems:"center",gap:8,zIndex:1000}}><span>✅</span><span style={{fontSize:13,fontWeight:700,color:"#fff"}}>Job site pinned and saved</span></div>}
 
         <div style={{position:"absolute",top:14,left:14,display:"flex",gap:8,zIndex:1000,flexWrap:"wrap"}}>
@@ -2355,12 +2360,13 @@ function MapView({user,activeRole}){
       </div>
 
       {/* SIDE PANEL */}
-      <div style={mobile?{maxHeight:"40vh",background:C.bark,borderTop:`1px solid ${C.border}`,overflowY:"auto",flexShrink:0}:{width:310,background:C.bark,borderLeft:`1px solid ${C.border}`,overflowY:"auto",flexShrink:0,display:"flex",flexDirection:"column"}}>
+      {(selectedMill||selectedSite)?<div style={mobile?{maxHeight:"40vh",background:C.bark,borderTop:`1px solid ${C.border}`,overflowY:"auto",flexShrink:0}:{position:"absolute",right:0,top:0,bottom:0,width:340,background:C.bark,borderLeft:`1px solid ${C.border}`,overflowY:"auto",zIndex:10,boxShadow:"-4px 0 20px rgba(0,0,0,0.4)"}}>
         {selectedMill&&tab==="mills"&&(
           <div>
             <div style={{padding:"16px 16px 12px",borderBottom:`1px solid ${C.border}`,background:"rgba(45,26,12,0.4)"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
                 <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:18,letterSpacing:1,lineHeight:1.1,flex:1}}>{selectedMill.name}</div>
+                <button onClick={()=>setSelectedMill(null)} style={{background:"transparent",border:"none",color:C.muted,fontSize:18,cursor:"pointer",padding:"0 4px",lineHeight:1}}>✕</button>
                 {selectedMill.verified?<Badge color={C.fresh}>✓ VERIFIED</Badge>:<Badge color={C.rust}>UNVERIFIED</Badge>}
               </div>
               <div style={{fontSize:11,color:C.muted,marginBottom:8}}>📍 {selectedMill.state}{userLoc&&selectedMill.lat?` · ${Math.round(haversineDistance(userLoc.lat,userLoc.lng,selectedMill.lat,selectedMill.lng))} mi away`:""}</div>
@@ -2388,6 +2394,7 @@ function MapView({user,activeRole}){
             <div style={{padding:"16px 16px 12px",borderBottom:`1px solid ${C.border}`,background:"rgba(45,26,12,0.4)"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
                 <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:18,letterSpacing:1,lineHeight:1.1,flex:1}}>{selectedSite.name}</div>
+                <button onClick={()=>setSelectedSite(null)} style={{background:"transparent",border:"none",color:C.muted,fontSize:18,cursor:"pointer",padding:"0 4px",lineHeight:1}}>✕</button>
                 <Badge color={selectedSite.status==="active"?C.fresh:C.steel}>{selectedSite.status}</Badge>
               </div>
               <div style={{fontSize:11,color:C.muted,marginBottom:6}}>📍 {selectedSite.county} · {selectedSite.acres} acres</div>
@@ -2419,14 +2426,7 @@ function MapView({user,activeRole}){
           </div>
         )}
 
-        {!selectedMill&&!selectedSite&&(
-          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,textAlign:"center"}}>
-            <div style={{fontSize:40,marginBottom:14,opacity:0.4}}>{tab==="mills"?"🏭":"📍"}</div>
-            <div style={{fontSize:13,color:C.muted,lineHeight:1.7}}>{tab==="mills"?"Click a mill on the map to see rates, confidence score, and haul actions.":isOwnerOrLogger?"Click a pin to view site details, or drop a new pin to mark a job site.":"Click a job site pin to view details."}</div>
-            {tab==="sites"&&isOwnerOrLogger&&<Btn v="gold" style={{marginTop:16}} onClick={()=>setPinMode(true)}>📍 Drop a Pin</Btn>}
-          </div>
-        )}
-      </div>
+      </div>:null}
 
       {pinModal&&(
         <Modal title="📍 NEW JOB SITE PIN" onClose={()=>{setPinModal(false);setPinMode(false);setNewPin(null);}}>
@@ -2520,8 +2520,8 @@ function LoadTicketsWithAutofill({user,activeRole}){
     const t={id:`t${Date.now()}`,no:form.no||`W-${Math.floor(Math.random()*90000+10000)}`,date:form.date,opType,mill:form.mill,species:form.species,scaleTons:opType==="cut_to_length"?null:qty,mbf:opType==="cut_to_length"?qty:null,rate:parseFloat(form.rate)||0,gross,status:photoSim?"photo_uploaded":"pending_photo",photo:photoSim,millVerified:false,jobSite:form.jobSite,submittedBy:user?.name||"You"};
     setTickets(p=>[t,...p]);setSubmitted(true);setTimeout(()=>{setNewModal(false);setSubmitted(false);clearPhoto();},1300);
   };
-  const statusColor={verified:C.fresh,photo_uploaded:C.blue,pending_photo:C.gold,rejected:C.rust};
-  const statusLabel={verified:"✓ Verified",photo_uploaded:"📸 Under Review",pending_photo:"⏳ Needs Photo",rejected:"✗ Rejected"};
+  const statusColor={verified:C.fresh,photo_uploaded:C.blue,pending_photo:C.gold,under_review:C.purple,rejected:C.rust};
+  const statusLabel={verified:"✓ Verified",photo_uploaded:"📸 Photo Uploaded",pending_photo:"⏳ Needs Photo",under_review:"🔍 Under Review",rejected:"✗ Rejected"};
   const isMill=activeRole==="mill";
   const mobile=useMobile();
 
@@ -2619,9 +2619,13 @@ function LoadTicketsWithAutofill({user,activeRole}){
             <Lbl style={{marginBottom:8}}>Photo Verification</Lbl>
             <input ref={viewFileInputRef} type="file" accept="image/*" capture="environment" onChange={(e)=>{const f=e.target.files?.[0];if(f){setViewTicket(p=>({...p,photo:true,status:"photo_uploaded",_photoFile:f,_photoPreview:URL.createObjectURL(f)}));setTickets(ts=>ts.map(t=>t.id===viewTicket.id?{...t,photo:true,status:"photo_uploaded"}:t));}}} style={{display:"none"}}/>
             {viewTicket.photo?(
-              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                {viewTicket._photoPreview?<img src={viewTicket._photoPreview} alt="Ticket" style={{width:60,height:60,objectFit:"cover",borderRadius:6,border:`2px solid ${C.fresh}`}}/>:<span style={{fontSize:24}}>📸</span>}
-                <span style={{color:C.fresh,fontSize:13}}>Photo attached and on record</span>
+              <div>
+                {viewTicket._photoPreview&&<div style={{marginBottom:10}}><img src={viewTicket._photoPreview} alt="Ticket photo" style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,border:`2px solid ${C.fresh}`,background:"rgba(0,0,0,0.3)"}}/></div>}
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  {!viewTicket._photoPreview&&<span style={{fontSize:24}}>📸</span>}
+                  <Badge color={statusColor[viewTicket.status]||C.blue}>{statusLabel[viewTicket.status]||"Photo attached"}</Badge>
+                  <span style={{color:C.fresh,fontSize:12}}>Photo on record</span>
+                </div>
               </div>
             ):(
               <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
@@ -2631,9 +2635,23 @@ function LoadTicketsWithAutofill({user,activeRole}){
               </div>
             )}
           </div>
+          <div style={{marginBottom:12,padding:12,background:"rgba(14,9,4,0.5)",borderRadius:5,border:`1px solid ${C.border}`}}>
+            <Lbl style={{marginBottom:8}}>Verification Status</Lbl>
+            <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+              {["pending_photo","photo_uploaded","under_review","verified","rejected"].map(s=>(
+                <div key={s} style={{padding:"4px 10px",borderRadius:12,fontSize:10,fontWeight:600,background:viewTicket.status===s?(statusColor[s]||C.steel)+"22":"rgba(14,9,4,0.4)",color:viewTicket.status===s?(statusColor[s]||C.steel):C.muted,border:`1px solid ${viewTicket.status===s?(statusColor[s]||C.steel)+"55":C.border}`}}>{s==="pending_photo"?"⏳ Needs Photo":s==="photo_uploaded"?"📸 Photo Uploaded":s==="under_review"?"🔍 Under Review":s==="verified"?"✓ Verified":s==="rejected"?"✗ Rejected":s}</div>
+              ))}
+            </div>
+            {isMill&&!viewTicket.millVerified&&viewTicket.photo&&(
+              <div style={{display:"flex",gap:8,marginTop:8}}>
+                <Btn v="gold" size="sm" onClick={()=>{setViewTicket(p=>({...p,millVerified:true,status:"verified"}));setTickets(ts=>ts.map(t=>t.id===viewTicket.id?{...t,millVerified:true,status:"verified"}:t));}}>✓ Verify Ticket</Btn>
+                <Btn v="danger" size="sm" onClick={()=>{setViewTicket(p=>({...p,status:"rejected"}));setTickets(ts=>ts.map(t=>t.id===viewTicket.id?{...t,status:"rejected"}:t));}}>✗ Reject</Btn>
+              </div>
+            )}
+          </div>
           <div style={{padding:12,background:"rgba(14,9,4,0.5)",borderRadius:5,border:`1px solid ${C.border}`}}>
             <Lbl style={{marginBottom:8}}>Mill Counter-Verification</Lbl>
-            {viewTicket.millVerified?<span style={{color:C.fresh,fontSize:13}}>✓ Verified by mill — full confidence weight</span>:<span style={{color:C.muted,fontSize:12}}>Awaiting mill confirmation</span>}
+            {viewTicket.millVerified?<span style={{color:C.fresh,fontSize:13}}>✓ Verified by mill — full confidence weight</span>:viewTicket.status==="rejected"?<span style={{color:C.rust,fontSize:13}}>✗ Rejected by mill</span>:<span style={{color:C.muted,fontSize:12}}>Awaiting mill confirmation</span>}
           </div>
         </Modal>
       )}
