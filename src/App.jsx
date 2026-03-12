@@ -2346,16 +2346,25 @@ function MapView({user,activeRole}){
   function MapResizeHandler(){
     const map=useMapEvents({});
     useEffect(()=>{
-      const t=setTimeout(()=>map.invalidateSize(),100);
-      return()=>clearTimeout(t);
-    });
+      // Invalidate on mount after layout settles
+      const t1=setTimeout(()=>map.invalidateSize(),50);
+      const t2=setTimeout(()=>map.invalidateSize(),300);
+      // Also observe container resize
+      const container=map.getContainer();
+      let ro;
+      if(window.ResizeObserver&&container){
+        ro=new ResizeObserver(()=>map.invalidateSize());
+        ro.observe(container);
+      }
+      return()=>{clearTimeout(t1);clearTimeout(t2);if(ro)ro.disconnect();};
+    },[map]);
     return null;
   }
 
   return(
-    <div style={{display:"flex",flexDirection:mobile?"column":"row",height:mobile?"calc(100vh - 48px)":"calc(100vh - 50px)",overflow:"hidden"}}>
-      <div style={{flex:1,position:"relative",overflow:"hidden",minWidth:0}}>
-        <MapContainer center={[44.5,-90]} zoom={5} style={{height:"100%",width:"100%",cursor:pinMode?"crosshair":"grab"}} zoomControl={false} attributionControl={false}>
+    <div style={{display:"flex",flexDirection:mobile?"column":"row",height:mobile?"calc(100dvh - 48px)":"calc(100dvh - 50px)",overflow:"hidden",position:"relative"}}>
+      <div style={{flex:"1 1 0%",position:"relative",overflow:"hidden",minWidth:0,minHeight:0,width:"100%",height:"100%"}}>
+        <MapContainer center={[44.5,-90]} zoom={5} style={{position:"absolute",top:0,left:0,right:0,bottom:0,cursor:pinMode?"crosshair":"grab"}} zoomControl={false} attributionControl={false}>
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" attribution="Esri Satellite"/>
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" opacity={0.5}/>
           <MapClickHandler/>

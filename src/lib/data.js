@@ -2,7 +2,7 @@
  * Data layer — fetches from Supabase for real users, returns mock data for demo users.
  * All hooks return { data, loading, error, refetch } and manage their own state.
  */
-import { useState, useEffect, useCallback, createContext, useContext } from "react";
+import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 
 // Demo user IDs (not UUIDs) — when we see these, serve mock data
 const DEMO_IDS = new Set(["owner1","logger1","trucker1","mill1","admin1","contract1","new1"]);
@@ -26,11 +26,23 @@ function useSupaQuery(tableName, { userId, select = "*", filters = [], orderBy, 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const localEdits = useRef(false);
 
   const demo = isDemo(userId);
   const useFallback = demo || alwaysFallback;
 
-  const refetch = useCallback(async () => {
+  // Wrap setData to track local edits
+  const setDataTracked = useCallback((val) => {
+    localEdits.current = true;
+    setData(val);
+  }, []);
+
+  const refetch = useCallback(async (force = false) => {
+    // Don't overwrite locally-added data unless forced
+    if (localEdits.current && !force) {
+      setLoading(false);
+      return;
+    }
     if (demo) {
       setData(mockData);
       setLoading(false);
@@ -39,7 +51,7 @@ function useSupaQuery(tableName, { userId, select = "*", filters = [], orderBy, 
     setLoading(true);
     try {
       const client = await sb();
-      if (!client) { setData(mockData); setLoading(false); return; }
+      if (!client) { setData(useFallback ? mockData : []); setLoading(false); return; }
       let q = client.from(tableName).select(select);
       for (const [method, ...args] of filters) {
         q = q[method](...args);
@@ -51,14 +63,14 @@ function useSupaQuery(tableName, { userId, select = "*", filters = [], orderBy, 
       setData(result && result.length > 0 ? result : (useFallback ? mockData : []));
     } catch (err) {
       setError(err);
-      setData(useFallback ? mockData : []); // only demo users + global tables get mock fallback
+      setData(useFallback ? mockData : []);
     }
     setLoading(false);
   }, [demo, tableName, userId]);
 
   useEffect(() => { refetch(); }, [refetch]);
 
-  return { data: data ?? (useFallback ? mockData : []), loading, error, refetch, setData };
+  return { data: data ?? (useFallback ? mockData : []), loading, error, refetch, setData: setDataTracked };
 }
 
 // ─── DataContext ───
