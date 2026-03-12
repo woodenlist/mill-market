@@ -3,7 +3,10 @@
     "allow": [
       "Bash(npx vite:*)",
       "Bash(npm install:*)",
-      "Bash(git init:*)"
+      "Bash(git init:*)",
+      "Bash(vercel whoami:*)",
+      "Bash(vercel env:*)",
+      "Bash(vercel --prod --yes 2>&1)"
     ]
   }
 }

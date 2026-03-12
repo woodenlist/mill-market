@@ -1,7 +1,11 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, createContext, useContext } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { isDemo, useMills, useTickets, useJobSites, useHauls, useCrew, useAlerts, useAllUsers, usePendingMills, usePendingRates } from "./lib/data.js";
+
+const UserIdContext = createContext(null);
+const useUserId = () => useContext(UserIdContext);
 
 function useMobile(){
   const [m,setM]=useState(typeof window!=="undefined"&&window.innerWidth<768);
@@ -469,6 +473,10 @@ function Sidebar({user,activeRole,view,setView}){
 // OWNER P&L
 // ═══════════════════════════════════════════════════════════════════════════
 function OwnerPL(){
+  const userId=useUserId();
+  const {data:hauls}=useHauls(userId,HAULS);
+  const {data:crew}=useCrew(userId,CREW);
+  const {data:jobSites}=useJobSites(userId,JOB_SITES);
   const mobile=useMobile();
   const [period,setPeriod]=useState("week");
   const [entity,setEntity]=useState("all");
@@ -478,15 +486,14 @@ function OwnerPL(){
     {id:"hauling",name:"Harmon Hauling LLC",   EIN:"82-7654321",color:C.blue},
   ];
 
-  const hauls=HAULS;
   const totalGross=hauls.reduce((s,h)=>s+h.gross,0);
   const totalFuel=hauls.reduce((s,h)=>s+h.fuel,0);
   const totalLabor=hauls.reduce((s,h)=>s+h.labor,0);
   const totalMileage=hauls.reduce((s,h)=>s+(h.mileage||0),0);
-  const crewCost=CREW.filter(c=>c.hourly).reduce((s,c)=>s+(Math.min(c.hours,40)*c.hourly)+(Math.max(0,c.hours-40)*c.hourly*1.5),0);
+  const crewCost=crew.filter(c=>c.hourly).reduce((s,c)=>s+(Math.min(c.hours,40)*c.hourly)+(Math.max(0,c.hours-40)*c.hourly*1.5),0);
   const totalNet=hauls.reduce((s,h)=>s+h.net,0);
 
-  const bySite=JOB_SITES.map(s=>{
+  const bySite=jobSites.map(s=>{
     const sh=hauls.filter(h=>h.jobSite===s.name);
     const gross=sh.reduce((a,h)=>a+h.gross,0);
     const fuel=sh.reduce((a,h)=>a+h.fuel,0);
@@ -629,23 +636,30 @@ function OwnerPL(){
 
 
 function OwnerDashboard({setView}){
+  const userId=useUserId();
+  const {data:hauls}=useHauls(userId,HAULS);
+  const {data:crew}=useCrew(userId,CREW);
+  const {data:jobSites}=useJobSites(userId,JOB_SITES);
+  const {data:mills}=useMills(userId,MILLS_DATA);
   const mobile=useMobile();
-  const loggingGross=HAULS.filter(h=>["Rhinelander NW Block","Lincoln Co. Tract A"].includes(h.jobSite)).reduce((s,h)=>s+h.gross,0);
-  const haulingGross=HAULS.filter(h=>h.jobSite==="Ashland Co. Plot").reduce((s,h)=>s+h.gross,0);
-  const totalCrewCost=CREW.filter(c=>c.hourly).reduce((s,c)=>s+(Math.min(c.hours,40)*c.hourly)+(Math.max(0,c.hours-40)*c.hourly*1.5),0);
-  const weekNet=HAULS.reduce((s,h)=>s+h.net,0);
-  const unreadAlerts=ALERTS_DATA.filter(a=>!a.read).length;
-  const pendingTickets=MOCK_TICKETS.filter(t=>t.status==="pending_photo").length;
+  const loggingGross=hauls.filter(h=>["Rhinelander NW Block","Lincoln Co. Tract A"].includes(h.jobSite)).reduce((s,h)=>s+h.gross,0);
+  const haulingGross=hauls.filter(h=>h.jobSite==="Ashland Co. Plot").reduce((s,h)=>s+h.gross,0);
+  const totalCrewCost=crew.filter(c=>c.hourly).reduce((s,c)=>s+(Math.min(c.hours,40)*c.hourly)+(Math.max(0,c.hours-40)*c.hourly*1.5),0);
+  const weekNet=hauls.reduce((s,h)=>s+h.net,0);
+  const {data:alertsData}=useAlerts(userId,ALERTS_DATA);
+  const {data:ticketsData}=useTickets(userId,MOCK_TICKETS);
+  const unreadAlerts=alertsData.filter(a=>!a.read).length;
+  const pendingTickets=ticketsData.filter(t=>t.status==="pending_photo").length;
   const entities=[
-    {name:"Harmon Logging LLC",   gross:loggingGross, crew:totalCrewCost*0.6, fuel:HAULS.filter(h=>h.jobSite!=="Ashland Co. Plot").reduce((s,h)=>s+h.fuel,0), net:loggingGross-totalCrewCost*0.6-532, color:C.fresh,  EIN:"82-1234567"},
-    {name:"Harmon Hauling LLC",   gross:haulingGross, crew:totalCrewCost*0.4, fuel:HAULS.filter(h=>h.jobSite==="Ashland Co. Plot").reduce((s,h)=>s+h.fuel,0),  net:haulingGross-totalCrewCost*0.4-392, color:C.blue,   EIN:"82-7654321"},
+    {name:"Harmon Logging LLC",   gross:loggingGross, crew:totalCrewCost*0.6, fuel:hauls.filter(h=>h.jobSite!=="Ashland Co. Plot").reduce((s,h)=>s+h.fuel,0), net:loggingGross-totalCrewCost*0.6-532, color:C.fresh,  EIN:"82-1234567"},
+    {name:"Harmon Hauling LLC",   gross:haulingGross, crew:totalCrewCost*0.4, fuel:hauls.filter(h=>h.jobSite==="Ashland Co. Plot").reduce((s,h)=>s+h.fuel,0),  net:haulingGross-totalCrewCost*0.4-392, color:C.blue,   EIN:"82-7654321"},
   ];
 
   return(
     <div style={{padding:mobile?14:26,maxWidth:1060,margin:"0 auto"}}>
       <Lbl>// Owner Dashboard</Lbl>
       <H1 size={mobile?28:36} style={{marginTop:5,marginBottom:4}}>GOOD MORNING, <span style={{color:C.purple}}>SANDRA</span></H1>
-      <div style={{fontSize:12,color:C.muted,marginBottom:22}}>Week ending Mar 11 · 2 entities · {HAULS.length} hauls this period</div>
+      <div style={{fontSize:12,color:C.muted,marginBottom:22}}>Week ending Mar 11 · 2 entities · {hauls.length} hauls this period</div>
 
       {/* Alert bar */}
       {(unreadAlerts>0||pendingTickets>0)&&(
@@ -711,7 +725,7 @@ function OwnerDashboard({setView}){
               <Lbl>Job Site Progress</Lbl>
               <Btn v="outline" size="sm" onClick={()=>setView("map")}>Map View →</Btn>
             </div>
-            {JOB_SITES.map(s=>{
+            {jobSites.map(s=>{
               const pct=s.estimatedTons>0?Math.round((s.completedTons/s.estimatedTons)*100):0;
               return(
                 <div key={s.id} style={{marginBottom:14}}>
@@ -738,7 +752,7 @@ function OwnerDashboard({setView}){
               <Lbl>Recent Tickets</Lbl>
               <Btn v="ghost" size="sm" onClick={()=>setView("tickets")}>All Tickets →</Btn>
             </div>
-            {MOCK_TICKETS.slice(0,4).map(t=>(
+            {ticketsData.slice(0,4).map(t=>(
               <div key={t.id} style={{display:"flex",alignItems:"center",gap:12,padding:"8px 0",borderBottom:`1px solid rgba(255,255,255,0.04)`}}>
                 <span style={{fontSize:18,flexShrink:0}}>{OP_TYPES[t.opType]?.icon}</span>
                 <div style={{flex:1}}>
@@ -762,7 +776,7 @@ function OwnerDashboard({setView}){
               <Lbl>Team Status</Lbl>
               <Btn v="ghost" size="sm" onClick={()=>setView("crew")}>Manage →</Btn>
             </div>
-            {CREW.map(c=>{
+            {crew.map(c=>{
               const ot=Math.max(0,c.hours-40);
               return(
                 <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:`1px solid rgba(255,255,255,0.04)`}}>
@@ -802,7 +816,7 @@ function OwnerDashboard({setView}){
           {/* Mill status */}
           <Card>
             <Lbl style={{marginBottom:12}}>Mill Status</Lbl>
-            {MILLS_DATA.slice(0,3).map(m=>(
+            {mills.slice(0,3).map(m=>(
               <div key={m.id} style={{padding:"7px 0",borderBottom:`1px solid rgba(255,255,255,0.04)`}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
                   <div style={{fontSize:12,fontWeight:600}}>{m.name.split("—")[0].trim()}</div>
@@ -1015,8 +1029,9 @@ function CashFlowPlanner(){
 // MILL — TICKET VERIFY VIEW
 // ═══════════════════════════════════════════════════════════════════════════
 function MillTicketVerify(){
+  const userId=useUserId();
+  const {data:tickets,setData:setTickets}=useTickets(userId,MOCK_TICKETS);
   const mobile=useMobile();
-  const [tickets,setTickets]=useState(MOCK_TICKETS.map(t=>({...t})));
   const [filter,setFilter]=useState("all");
   const [selected,setSelected]=useState(null);
 
@@ -1270,8 +1285,9 @@ function MillReports(){
 // ADMIN — USERS
 // ═══════════════════════════════════════════════════════════════════════════
 function AdminUsers(){
+  const userId=useUserId();
+  const {data:users,setData:setUsers}=useAllUsers(userId,ALL_USERS);
   const mobile=useMobile();
-  const [users,setUsers]=useState(ALL_USERS);
   const [search,setSearch]=useState("");
   const [planFilter,setPlanFilter]=useState("all");
   const [selected,setSelected]=useState(null);
@@ -1706,6 +1722,8 @@ function Settings({user,activeRole}){
 // ONBOARDING — new company setup flow
 // ═══════════════════════════════════════════════════════════════════════════
 function Onboarding({onComplete}){
+  const userId=useUserId();
+  const {data:mills}=useMills(userId,MILLS_DATA);
   const [step,setStep]=useState(0);
   const [form,setForm]=useState({
     companyName:"",ein:"",state:"WI",primaryRole:"logger",
@@ -1824,7 +1842,7 @@ function Onboarding({onComplete}){
                 <Inp label="Acres (optional)" suffix="ac" type="number" value={form.firstSiteAcres} onChange={h("firstSiteAcres")}/>
                 <Sel label="Nearest Mill" value={form.firstMill} onChange={h("firstMill")}>
                   <option value="">Select mill…</option>
-                  {MILLS_DATA.map(m=><option key={m.id} value={m.name}>{m.name.split("—")[0].trim()}</option>)}
+                  {mills.map(m=><option key={m.id} value={m.name}>{m.name.split("—")[0].trim()}</option>)}
                 </Sel>
               </div>
               <div style={{fontSize:12,color:C.muted}}>You can skip this and add sites from the Rate Map → Job Sites tab at any time.</div>
@@ -2124,6 +2142,7 @@ export default function MillMarket(){
   };
 
   return(
+    <UserIdContext.Provider value={user?.id}>
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
@@ -2196,6 +2215,7 @@ export default function MillMarket(){
         </div>
       </div>
     </>
+    </UserIdContext.Provider>
   );
 }
 
@@ -2203,8 +2223,11 @@ export default function MillMarket(){
 // MAP WITH JOB SITE PIN-DROP & SHARE
 // ═══════════════════════════════════════════════════════════════════════════
 function MapView({user,activeRole}){
+  const userId=useUserId();
+  const {data:mills}=useMills(userId,MILLS_DATA);
+  const {data:jobSites,setData:setJobSites}=useJobSites(userId,JOB_SITES);
+  const {data:crewData}=useCrew(userId,CREW);
   const mobile=useMobile();
-  const [jobSites,setJobSites]=useState(JOB_SITES.map(s=>({...s})));
   const [selectedMill,setSelectedMill]=useState(null);
   const [selectedSite,setSelectedSite]=useState(null);
   const [tab,setTab]=useState("mills");
@@ -2227,7 +2250,7 @@ function MapView({user,activeRole}){
   };
   const shareLink=site=>`https://millmarket.com/site/${site?.id}?lat=${site?.lat}&lng=${site?.lng}&name=${encodeURIComponent(site?.name||"")}`;
   const sendShare=()=>{setShareSent(true);setTimeout(()=>setShareModal(null),1400);};
-  const filteredMills=MILLS_DATA.filter(m=>{
+  const filteredMills=mills.filter(m=>{
     if(filterConf==="high") return m.confidence>=80;
     if(filterConf==="accepting") return m.accepting;
     if(filterConf==="low") return m.confidence<70;
@@ -2381,7 +2404,7 @@ function MapView({user,activeRole}){
             </div>
             <div>
               <Lbl style={{marginBottom:7}}>Share Immediately With</Lbl>
-              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{CREW.filter(c=>c.status==="active"&&c.hourly).map(m=><Badge key={m.id} color={C.blue}>{m.name.split(" ")[0]}</Badge>)}</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{crewData.filter(c=>c.status==="active"&&c.hourly).map(m=><Badge key={m.id} color={C.blue}>{m.name.split(" ")[0]}</Badge>)}</div>
               <div style={{fontSize:10,color:C.muted,marginTop:6}}>Active team members will receive a push notification with the pin link.</div>
             </div>
             <Inp label="Notes (optional)" placeholder="Access via County Rd B, gate code 4412…" value={pinForm.notes} onChange={e=>setPinForm(p=>({...p,notes:e.target.value}))}/>
@@ -2407,7 +2430,7 @@ function MapView({user,activeRole}){
               <div>
                 <Lbl style={{marginBottom:8}}>Send To</Lbl>
                 <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                  {CREW.filter(c=>c.status==="active"&&c.hourly).map(m=>(
+                  {crewData.filter(c=>c.status==="active"&&c.hourly).map(m=>(
                     <label key={m.id} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 10px",borderRadius:4,background:"rgba(14,9,4,0.4)",cursor:"pointer"}}>
                       <input type="checkbox" defaultChecked style={{accentColor:C.gold}}/>
                       <span style={{fontSize:13}}>{m.name}</span><span style={{fontSize:10,color:C.muted,marginLeft:"auto"}}>{m.entity}</span>
@@ -2429,7 +2452,9 @@ function MapView({user,activeRole}){
 // LOAD TICKETS WITH AUTOFILL
 // ═══════════════════════════════════════════════════════════════════════════
 function LoadTicketsWithAutofill({user,activeRole}){
-  const [tickets,setTickets]=useState(MOCK_TICKETS);
+  const userId=useUserId();
+  const {data:tickets,setData:setTickets}=useTickets(userId,MOCK_TICKETS);
+  const {data:mills}=useMills(userId,MILLS_DATA);
   const [newModal,setNewModal]=useState(false);
   const [viewTicket,setViewTicket]=useState(null);
   const [photoFile,setPhotoFile]=useState(null);
@@ -2600,7 +2625,7 @@ function LoadTicketsWithAutofill({user,activeRole}){
                 <Inp label="Job Site" placeholder="Rhinelander NW Block" value={form.jobSite} onChange={h("jobSite")} autofilled={autofilled.jobSite&&!!form.jobSite}/>
                 <Sel label="Mill" value={form.mill} onChange={h("mill")} autofilled={autofilled.mill&&!!form.mill}>
                   <option value="">Select mill…</option>
-                  {MILLS_DATA.map(m=><option key={m.id} value={m.name}>{m.name}</option>)}
+                  {mills.map(m=><option key={m.id} value={m.name}>{m.name}</option>)}
                   <option value="Green Bay Packaging">Green Bay Packaging</option>
                 </Sel>
                 <Sel label="Species" value={form.species} onChange={h("species")} autofilled={autofilled.species&&!!form.species}>
@@ -2647,8 +2672,10 @@ function LoggerOwnerDashboard({setView}){
   return <OwnerDashboard setView={setView}/>;
 }
 function TruckerDashboard({setView}){
+  const userId=useUserId();
+  const {data:hauls}=useHauls(userId,HAULS);
   const mobile=useMobile();
-  const weekNet=HAULS.slice(0,5).reduce((s,h)=>s+h.net,0);
+  const weekNet=hauls.slice(0,5).reduce((s,h)=>s+h.net,0);
   return(
     <div style={{padding:mobile?14:26,maxWidth:960,margin:"0 auto"}}>
       <Lbl>// Trucker Dashboard</Lbl>
@@ -2667,8 +2694,10 @@ function TruckerDashboard({setView}){
   );
 }
 function MillDashboard({setView}){
+  const userId=useUserId();
+  const {data:mills}=useMills(userId,MILLS_DATA);
   const mobile=useMobile();
-  const mill=MILLS_DATA[0];
+  const mill=mills[0];
   return(
     <div style={{padding:mobile?14:26,maxWidth:960,margin:"0 auto"}}>
       <Lbl>// Mill Dashboard</Lbl>
@@ -2708,8 +2737,9 @@ function AdminDashboard(){
   );
 }
 function MillVerification(){
+  const userId=useUserId();
+  const {data:mills,setData:setMills}=usePendingMills(userId,PENDING_MILLS);
   const mobile=useMobile();
-  const [mills,setMills]=useState(PENDING_MILLS);
   const [sel,setSel]=useState(null);
   return(
     <div style={{padding:mobile?14:26,maxWidth:1000,margin:"0 auto"}}>
@@ -2744,8 +2774,9 @@ function MillVerification(){
   );
 }
 function RateModeration(){
+  const userId=useUserId();
+  const {data:rates,setData:setRates}=usePendingRates(userId,PENDING_RATES);
   const mobile=useMobile();
-  const [rates,setRates]=useState(PENDING_RATES);
   return(
     <div style={{padding:mobile?14:26,maxWidth:900,margin:"0 auto"}}>
       <Lbl>// Admin · Rate Moderation</Lbl>
@@ -2782,9 +2813,11 @@ function RateModeration(){
   );
 }
 function MillRates(){
+  const userId=useUserId();
+  const {data:millsData}=useMills(userId,MILLS_DATA);
   const mobile=useMobile();
   const [tab,setTab]=useState("current");
-  const [rates,setRates]=useState({...MILLS_DATA[0].rates});
+  const [rates,setRates]=useState({...millsData[0].rates});
   const [saved,setSaved]=useState(false);
   const [history]=useState([
     {date:"2025-03-01",rates:{"Pine Sawtimber":32.50,"Chip-n-Saw":26.75,"Softwood Pulp":21.00,"Hardwood Pulp":18.00}},
@@ -3023,6 +3056,9 @@ function HaulCalculator(){
   );
 }
 function Reports(){
+  const userId=useUserId();
+  const {data:hauls}=useHauls(userId,HAULS);
+  const {data:mills}=useMills(userId,MILLS_DATA);
   const mobile=useMobile();
   const [tab,setTab]=useState("profitability");
   const tabs=[{id:"profitability",icon:"💰",label:"Profitability"},{id:"trends",icon:"📈",label:"Rate Trends"},{id:"mill_compare",icon:"🏭",label:"Mill Compare"}];
@@ -3033,7 +3069,7 @@ function Reports(){
       {tab==="profitability"&&(mobile?(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           <Lbl>All Hauls — This Period</Lbl>
-          {HAULS.map(h=>{const marg=h.gross>0?Math.round((h.net/h.gross)*100):0;return(
+          {hauls.map(h=>{const marg=h.gross>0?Math.round((h.net/h.gross)*100):0;return(
             <Card key={h.id} style={{padding:14,background:h.net<0?"rgba(166,58,26,0.04)":undefined}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                 <div style={{fontWeight:600,fontSize:13}}>{h.jobSite}</div>
@@ -3055,7 +3091,7 @@ function Reports(){
           <Lbl style={{marginBottom:14}}>All Hauls — This Period</Lbl>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>{["Date","Site","Mill","Species","Gross","Fuel","Labor","NET","Margin"].map(h=><th key={h} style={{padding:"5px 9px",textAlign:["Gross","Fuel","Labor","NET","Margin"].includes(h)?"right":"left",color:C.muted,fontFamily:"'DM Mono',monospace",fontSize:9,letterSpacing:1,fontWeight:500}}>{h}</th>)}</tr></thead>
-            <tbody>{HAULS.map(h=>{const marg=h.gross>0?Math.round((h.net/h.gross)*100):0;return(
+            <tbody>{hauls.map(h=>{const marg=h.gross>0?Math.round((h.net/h.gross)*100):0;return(
               <tr key={h.id} style={{borderBottom:`1px solid rgba(255,255,255,0.04)`,background:h.net<0?"rgba(166,58,26,0.04)":"transparent"}}>
                 <td style={{padding:"9px 9px",color:C.muted}}>{h.date}</td>
                 <td style={{padding:"9px 9px",fontWeight:600}}>{h.jobSite}</td>
@@ -3089,8 +3125,8 @@ function Reports(){
       )}
       {tab==="mill_compare"&&(
         <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-          {MILLS_DATA.slice(0,3).map(m=>{
-            const mh=HAULS.filter(h=>h.mill===m.name);const mnet=mh.reduce((s,h)=>s+h.net,0);const mgross=mh.reduce((s,h)=>s+h.gross,0);
+          {mills.slice(0,3).map(m=>{
+            const mh=hauls.filter(h=>h.mill===m.name);const mnet=mh.reduce((s,h)=>s+h.net,0);const mgross=mh.reduce((s,h)=>s+h.gross,0);
             return<StatCard key={m.id} label={m.name.split("—")[0].trim()} value={fmt$(mnet)} sub={`${mh.length} hauls · ${mgross>0?Math.round((mnet/mgross)*100):0}% margin`} color={mnet>0?C.fresh:C.rust}/>;
           })}
         </div>
@@ -3099,6 +3135,8 @@ function Reports(){
   );
 }
 function RateSubmit(){
+  const userId=useUserId();
+  const {data:mills}=useMills(userId,MILLS_DATA);
   const mobile=useMobile();
   const [step,setStep]=useState(1);const [done,setDone]=useState(false);
   const [form,setForm]=useState({mill:"",species:"",rate:"",opType:"tree_length",source:"personal"});
@@ -3108,7 +3146,7 @@ function RateSubmit(){
     <div style={{padding:mobile?14:26,maxWidth:600,margin:"0 auto"}}>
       <Lbl>// Submit Rates</Lbl><H1 size={34} style={{marginTop:5,marginBottom:20}}>SUBMIT A <span style={{color:C.gold}}>RATE</span></H1>
       <Card>
-        {step===1&&<div style={{display:"flex",flexDirection:"column",gap:12}}><Sel label="Mill" value={form.mill} onChange={h("mill")}><option value="">Select mill…</option>{MILLS_DATA.map(m=><option key={m.id} value={m.name}>{m.name}</option>)}</Sel><Sel label="Operation Type" value={form.opType} onChange={h("opType")}>{Object.entries(OP_TYPES).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label}</option>)}</Sel><div style={{display:"flex",gap:9}}><Btn v="outline" full disabled>← Back</Btn><Btn full disabled={!form.mill} onClick={()=>setStep(2)}>Next →</Btn></div></div>}
+        {step===1&&<div style={{display:"flex",flexDirection:"column",gap:12}}><Sel label="Mill" value={form.mill} onChange={h("mill")}><option value="">Select mill…</option>{mills.map(m=><option key={m.id} value={m.name}>{m.name}</option>)}</Sel><Sel label="Operation Type" value={form.opType} onChange={h("opType")}>{Object.entries(OP_TYPES).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label}</option>)}</Sel><div style={{display:"flex",gap:9}}><Btn v="outline" full disabled>← Back</Btn><Btn full disabled={!form.mill} onClick={()=>setStep(2)}>Next →</Btn></div></div>}
         {step===2&&<div style={{display:"flex",flexDirection:"column",gap:12}}><Sel label="Species" value={form.species} onChange={h("species")}><option value="">Select species…</option>{["Pine Sawtimber","Chip-n-Saw","Hardwood Pulp","Softwood Pulp","Aspen","Mixed Chips"].map(s=><option key={s}>{s}</option>)}</Sel><Inp label="Rate" prefix="$" value={form.rate} onChange={h("rate")} type="number"/><div style={{display:"flex",gap:9}}><Btn v="outline" full onClick={()=>setStep(1)}>← Back</Btn><Btn full disabled={!form.species||!form.rate} onClick={()=>setStep(3)}>Next →</Btn></div></div>}
         {step===3&&<div style={{display:"flex",flexDirection:"column",gap:12}}><Sel label="Source" value={form.source} onChange={h("source")}><option value="personal">Personally hauled this load</option><option value="ticket_photo">Have scale ticket / photo</option><option value="word_of_mouth">Heard from another logger</option></Sel><div style={{display:"flex",gap:9}}><Btn v="outline" full onClick={()=>setStep(2)}>← Back</Btn><Btn full onClick={()=>setDone(true)}>Submit Rate</Btn></div></div>}
       </Card>
@@ -3116,8 +3154,9 @@ function RateSubmit(){
   );
 }
 function Alerts(){
+  const userId=useUserId();
+  const {data:alerts,setData:setAlerts}=useAlerts(userId,ALERTS_DATA);
   const mobile=useMobile();
-  const [alerts,setAlerts]=useState(ALERTS_DATA.map(a=>({...a,resolved:false})));
   const typeColor={rate:C.gold,quota:C.blue,ticket:C.steel,crew:C.fresh,market:C.rust};
   const typeIcon={rate:"💲",quota:"📦",ticket:"🎫",crew:"👥",market:"📉"};
   const actionLabel={rate:"View Rates",quota:"Check Quota",ticket:"View Ticket",crew:"View Crew",market:"View Report"};
@@ -3225,8 +3264,9 @@ const MACHINE_TYPES=["Feller Buncher","Skidder","Processor","Loader","Forwarder"
 const MACHINE_MAKES=["John Deere","Tigercat","Komatsu","Ponsse","Caterpillar","Volvo","Peterbilt","Kenworth","Mack","International","Other"];
 
 function CrewManagement(){
+  const userId=useUserId();
+  const {data:crew,setData:setCrew}=useCrew(userId,CREW);
   const mobile=useMobile();
-  const [crew,setCrew]=useState(CREW.map(c=>({...c})));
   const [machines,setMachines]=useState([
     {id:"m1",name:"Tigercat 822D",  type:"Feller Buncher",make:"Tigercat",  year:2021,assignedTo:"Dale Schultz", hours:4820,nextService:5000,status:"active"},
     {id:"m2",name:"Deere 648L",     type:"Skidder",       make:"John Deere",year:2020,assignedTo:"Roy Ingram",    hours:6140,nextService:6500,status:"active"},
