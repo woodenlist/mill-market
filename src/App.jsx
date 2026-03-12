@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from "react-leaf
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { isDemo, useMills, useTickets, useJobSites, useHauls, useCrew, useAlerts, useAllUsers, usePendingMills, usePendingRates } from "./lib/data.js";
+import SCRAPED_MILLS from "./data/mills-scraped.js";
 
 const UserIdContext = createContext(null);
 const useUserId = () => useContext(UserIdContext);
@@ -110,19 +111,9 @@ const NAV = {
   ],
 };
 
-// ── MOCK DATA ──────────────────────────────────────────────────────────────
-const MILLS_DATA = [
-  {id:1,name:"Weyerhaeuser — Marshfield",state:"WI",verified:true, confidence:91,accepting:true, quotaUsed:340,quotaMax:500,lat:44.669,lng:-90.172,x:"61%",y:"34%",
-   rates:{"Pine Sawtimber":32.50,"Chip-n-Saw":26.75,"Softwood Pulp":21.00,"Hardwood Pulp":18.00}},
-  {id:2,name:"Stora Enso — Duluth",      state:"MN",verified:true, confidence:88,accepting:true, quotaUsed:145,quotaMax:350,lat:46.787,lng:-92.100,x:"51%",y:"22%",
-   rates:{"Pine Sawtimber":34.00,"Softwood Pulp":22.00,"Hardwood Pulp":19.50,"Aspen":24.00}},
-  {id:3,name:"Sappi NA — Cloquet",       state:"MN",verified:false,confidence:72,accepting:true, quotaUsed:352,quotaMax:400,lat:46.722,lng:-92.461,x:"49%",y:"24%",
-   rates:{"Pine Sawtimber":35.00,"Softwood Pulp":23.00}},
-  {id:4,name:"Potlatch — Lewiston",      state:"ID",verified:true, confidence:85,accepting:false,quotaUsed:300,quotaMax:300,lat:46.416,lng:-117.018,x:"13%",y:"26%",
-   rates:{"Pine Sawtimber":28.50,"Fir Sawtimber":30.00}},
-  {id:5,name:"Rayonier — Jesup",         state:"GA",verified:true, confidence:90,accepting:false,quotaUsed:266,quotaMax:280,lat:31.598,lng:-81.885,x:"73%",y:"72%",
-   rates:{"Pine Sawtimber":31.00,"Pine Pulp":17.00}},
-];
+// ── MOCK / SEED DATA ──────────────────────────────────────────────────────
+// Full US mill database (225 mills) — imported from scraped data, with rates object added
+const MILLS_DATA = SCRAPED_MILLS.map(m=>({...m, quotaUsed:0, quotaMax:0, rates:Object.fromEntries((m.species||[]).map(s=>[s,0]))}));
 
 const JOB_SITES = [
   {id:"j1",name:"Rhinelander NW Block",lat:45.64,lng:-89.41,county:"Oneida Co.",state:"WI",acres:240,species:["Pine Sawtimber","Chip-n-Saw"],estimatedTons:1800,completedTons:1240,status:"active",  color:C.fresh,x:"63%",y:"30%",nearestMill:"Weyerhaeuser — Marshfield",distToMill:47,sharedWith:["Dale Schultz","Roy Ingram"]},
@@ -2253,7 +2244,7 @@ function MapView({user,activeRole}){
   const [filterConf,setFilterConf]=useState("all");
   const [userLoc,setUserLoc]=useState(null);
   const [locError,setLocError]=useState(null);
-  const [radius,setRadius]=useState(200);
+  const [radius,setRadius]=useState(500);
   const isOwnerOrLogger=["owner","logger"].includes(activeRole);
 
   useEffect(()=>{
