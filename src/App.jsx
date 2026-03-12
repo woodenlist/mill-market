@@ -2216,9 +2216,9 @@ export default function MillMarket(){
       `}</style>
       <div style={{minHeight:"100vh",background:C.ink,color:C.sawdust,fontFamily:"'DM Sans',system-ui,sans-serif"}}>
         <Sidebar user={user} activeRole={activeRole} view={view} setView={setView}/>
-        <div style={{marginLeft:mobile?0:218,height:view==="map"?"100vh":undefined,minHeight:view==="map"?undefined:"100vh",display:"flex",flexDirection:"column",paddingBottom:mobile&&view!=="map"?64:0,overflow:view==="map"?"hidden":undefined}}>
+        <div style={{marginLeft:mobile?0:218,minHeight:"100vh",display:"flex",flexDirection:"column",paddingBottom:mobile?64:0}}>
           {/* TOPBAR */}
-          <div style={{height:mobile?48:50,flexShrink:0,background:"rgba(8,5,2,0.97)",backdropFilter:"blur(12px)",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",padding:`0 ${mobile?14:20}px`,gap:mobile?8:12,position:view==="map"?"relative":"sticky",top:0,zIndex:40}}>
+          <div style={{height:mobile?48:50,background:"rgba(8,5,2,0.97)",backdropFilter:"blur(12px)",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",padding:`0 ${mobile?14:20}px`,gap:mobile?8:12,position:"sticky",top:0,zIndex:40}}>
             {mobile?(
               <>
                 <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:20,letterSpacing:3,color:C.gold}}>MILL<span style={{color:C.sawdust}}>MARKET</span></div>
@@ -2362,9 +2362,9 @@ function MapView({user,activeRole}){
   }
 
   return(
-    <div style={{display:"flex",flexDirection:mobile?"column":"row",flex:1,overflow:"hidden",position:"relative"}}>
-      <div style={{flex:"1 1 0%",position:"relative",overflow:"hidden",minWidth:0,minHeight:0,width:"100%",height:"100%"}}>
-        <MapContainer center={[44.5,-90]} zoom={5} style={{position:"absolute",top:0,left:0,right:0,bottom:0,cursor:pinMode?"crosshair":"grab"}} zoomControl={false} attributionControl={false}>
+    <div style={{display:"flex",flexDirection:mobile?"column":"row",height:mobile?"calc(100vh - 48px - 64px)":"calc(100vh - 50px)",overflow:"hidden",position:"relative"}}>
+      <div style={{flex:1,position:"relative",overflow:"hidden",minWidth:0}}>
+        <MapContainer center={[44.5,-90]} zoom={5} style={{height:"100%",width:"100%",cursor:pinMode?"crosshair":"grab"}} zoomControl={false} attributionControl={false}>
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" attribution="Esri Satellite"/>
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" opacity={0.5}/>
           <MapClickHandler/>
