@@ -2342,6 +2342,15 @@ function MapView({user,activeRole}){
     return null;
   }
 
+  function MapResizeHandler(){
+    const map=useMapEvents({});
+    useEffect(()=>{
+      const t=setTimeout(()=>map.invalidateSize(),100);
+      return()=>clearTimeout(t);
+    });
+    return null;
+  }
+
   return(
     <div style={{display:"flex",flexDirection:mobile?"column":"row",height:mobile?"calc(100vh - 48px)":"calc(100vh - 50px)",overflow:"hidden"}}>
       <div style={{flex:1,position:"relative",overflow:"hidden",minWidth:0}}>
@@ -2350,6 +2359,7 @@ function MapView({user,activeRole}){
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" opacity={0.5}/>
           <MapClickHandler/>
           <MapAutoCenter userLoc={userLoc}/>
+          <MapResizeHandler/>
           {userLoc&&<Marker position={[userLoc.lat,userLoc.lng]} icon={L.divIcon({className:"",iconSize:[16,16],iconAnchor:[8,8],html:`<div style="width:16px;height:16px;border-radius:50%;background:#2A6B8A;border:3px solid #fff;box-shadow:0 0 10px rgba(42,107,138,0.6)"></div>`})}><Popup>Your Location</Popup></Marker>}
           {tab==="mills"&&filteredMills.map(m=>{
             const cc=confColor(m.confidence);const isSel=selectedMill?.id===m.id;
@@ -2592,10 +2602,15 @@ function LoadTicketsWithAutofill({user,activeRole}){
     const t={id:`t${Date.now()}`,no:form.no||`W-${Math.floor(Math.random()*90000+10000)}`,date:form.date,opType,mill:form.mill,species:form.species,scaleTons:opType==="cut_to_length"?null:qty,mbf:opType==="cut_to_length"?qty:null,rate:parseFloat(form.rate)||0,gross,status:photoSim?"photo_uploaded":"pending_photo",photo:photoSim,millVerified:false,jobSite:form.jobSite,submittedBy:user?.name||"You"};
     setTickets(p=>[t,...p]);setSubmitted(true);setTimeout(()=>{setNewModal(false);setSubmitted(false);clearPhoto();},1300);
   };
+  const [ticketTab,setTicketTab]=useState("today");
   const statusColor={verified:C.fresh,photo_uploaded:C.blue,pending_photo:C.gold,under_review:C.purple,rejected:C.rust};
   const statusLabel={verified:"✓ Verified",photo_uploaded:"📸 Photo Uploaded",pending_photo:"⏳ Needs Photo",under_review:"🔍 Under Review",rejected:"✗ Rejected"};
   const isMill=activeRole==="mill";
   const mobile=useMobile();
+  const today=new Date().toISOString().split("T")[0];
+  const todayTickets=tickets.filter(t=>t.date===today);
+  const previousTickets=tickets.filter(t=>t.date!==today);
+  const displayTickets=ticketTab==="today"?todayTickets:previousTickets;
 
   return(
     <div style={{padding:mobile?14:26,maxWidth:1040,margin:"0 auto"}}>
@@ -2609,13 +2624,20 @@ function LoadTicketsWithAutofill({user,activeRole}){
         <StatCard label="Needs Photo" value={tickets.filter(t=>t.status==="pending_photo").length} color={C.gold} icon="📸"/>
         <StatCard label="Gross Revenue" value={fmt$(tickets.reduce((s,t)=>s+(t.gross||0),0))} color={C.sawdust} icon="💰"/>
       </div>
+      <div style={{display:"flex",gap:0,marginBottom:14}}>
+        {[["today",`Today (${todayTickets.length})`],["previous",`Previous (${previousTickets.length})`]].map(([k,label])=>(
+          <button key={k} onClick={()=>setTicketTab(k)} style={{padding:"8px 18px",border:`1px solid ${C.border}`,borderBottom:ticketTab===k?`2px solid ${C.gold}`:`1px solid ${C.border}`,background:ticketTab===k?C.goldDim:"transparent",color:ticketTab===k?C.gold:C.muted,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{label}</button>
+        ))}
+      </div>
       <div style={{marginBottom:14,padding:"9px 14px",background:C.blueDim,border:`1px solid ${C.blueBorder}`,borderRadius:6,display:"flex",alignItems:"center",gap:10}}>
         <span style={{fontSize:16}}>📧</span>
         <div><span style={{fontSize:13,color:C.blue,fontWeight:600}}>Email ticket photos to </span><Mono style={{color:C.gold,fontSize:13}}>tickets@millmarket.com</Mono><span style={{fontSize:12,color:C.muted}}> — subject: ticket number. Auto-attaches to your account.</span></div>
       </div>
-      {mobile?(
+      {displayTickets.length===0?(
+        <Card><div style={{textAlign:"center",padding:"30px 0"}}><div style={{fontSize:36,marginBottom:10}}>{ticketTab==="today"?"🎫":"📦"}</div><div style={{fontSize:14,color:C.muted}}>{ticketTab==="today"?"No tickets submitted today":"No previous tickets"}</div>{ticketTab==="today"&&!isMill&&<Btn style={{marginTop:14}} onClick={()=>setNewModal(true)}>+ Submit Your First Ticket</Btn>}</div></Card>
+      ):mobile?(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {tickets.map(t=>{
+          {displayTickets.map(t=>{
             const op=OP_TYPES[t.opType];const qty=t.opType==="cut_to_length"?`${t.mbf} MBF`:`${(t.scaleTons||t.grossTons||0)}t`;
             return(
               <Card key={t.id} style={{cursor:"pointer",padding:14}} onClick={()=>setViewTicket(t)}>
@@ -2649,7 +2671,7 @@ function LoadTicketsWithAutofill({user,activeRole}){
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>{["Ticket #","Date","Site","Mill","Op Type","Species","Qty","Rate","Gross","Status","📸","Mill ✓"].map(h=><th key={h} style={{padding:"5px 9px",textAlign:"left",color:C.muted,fontFamily:"'DM Mono',monospace",fontSize:9,letterSpacing:1,fontWeight:500,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
             <tbody>
-              {tickets.map(t=>{
+              {displayTickets.map(t=>{
                 const op=OP_TYPES[t.opType];const qty=t.opType==="cut_to_length"?`${t.mbf} MBF`:`${(t.scaleTons||t.grossTons||0)}t`;
                 return(
                   <tr key={t.id} style={{borderBottom:`1px solid rgba(255,255,255,0.03)`,cursor:"pointer",transition:"background 0.1s"}} onClick={()=>setViewTicket(t)} onMouseEnter={e=>e.currentTarget.style.background="rgba(200,149,42,0.04)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>

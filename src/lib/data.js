@@ -22,12 +22,13 @@ async function sb() {
 }
 
 // ─── Generic fetch hook ───
-function useSupaQuery(tableName, { userId, select = "*", filters = [], orderBy, mockData, transform }) {
+function useSupaQuery(tableName, { userId, select = "*", filters = [], orderBy, mockData, transform, alwaysFallback = false }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const demo = isDemo(userId);
+  const useFallback = demo || alwaysFallback;
 
   const refetch = useCallback(async () => {
     if (demo) {
@@ -47,17 +48,17 @@ function useSupaQuery(tableName, { userId, select = "*", filters = [], orderBy, 
       const { data: rows, error: e } = await q;
       if (e) throw e;
       const result = transform ? transform(rows) : rows;
-      setData(result && result.length > 0 ? result : mockData);
+      setData(result && result.length > 0 ? result : (useFallback ? mockData : []));
     } catch (err) {
       setError(err);
-      setData(mockData); // fallback
+      setData(useFallback ? mockData : []); // only demo users + global tables get mock fallback
     }
     setLoading(false);
   }, [demo, tableName, userId]);
 
   useEffect(() => { refetch(); }, [refetch]);
 
-  return { data: data ?? mockData, loading, error, refetch, setData };
+  return { data: data ?? (useFallback ? mockData : []), loading, error, refetch, setData };
 }
 
 // ─── DataContext ───
@@ -75,6 +76,7 @@ export function useMills(userId, mockData) {
     userId,
     select: "*, mill_rates(*)",
     mockData,
+    alwaysFallback: true,
     transform: (rows) => rows.map(m => ({
       id: m.id,
       name: m.name,
