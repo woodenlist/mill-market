@@ -1901,7 +1901,47 @@ const DEMO_USERS=[
 
 function AuthScreen({onLogin}){
   const [loading,setLoading]=useState(false);
+  const [mode,setMode]=useState("login"); // login | signup | demo
+  const [email,setEmail]=useState("");
+  const [password,setPassword]=useState("");
+  const [name,setName]=useState("");
+  const [error,setError]=useState("");
+  const [signupSuccess,setSignupSuccess]=useState(false);
+
   const quick=u=>{setLoading(true);setTimeout(()=>onLogin(u),380);};
+
+  const handleAuth=async()=>{
+    setError("");setLoading(true);
+    try{
+      if(mode==="signup"){
+        const {signUp}=await import("./lib/auth.js");
+        const {data,error:e}=await signUp(email,password,{name});
+        if(e)throw e;
+        setSignupSuccess(true);setLoading(false);return;
+      }
+      const {signIn}=await import("./lib/auth.js");
+      const {data,error:e}=await signIn(email,password);
+      if(e)throw e;
+      if(data?.user){
+        const {supabase}=await import("./lib/supabase.js");
+        const {data:profile}=await supabase.from("profiles").select("*").eq("id",data.user.id).single();
+        onLogin({
+          id:data.user.id,
+          name:profile?.name||data.user.user_metadata?.name||email.split("@")[0],
+          email:data.user.email,
+          roles:profile?.roles||["logger"],
+          primaryRole:profile?.roles?.[0]||"logger",
+          company:profile?.company||"",
+          plan:profile?.plan||"free",
+          isNew:!profile?.roles?.length,
+        });
+      }
+    }catch(err){
+      setError(err.message||"Authentication failed");
+    }
+    setLoading(false);
+  };
+
   return(
     <div style={{minHeight:"100vh",background:C.ink,display:"flex",alignItems:"center",justifyContent:"center",padding:20,backgroundImage:`radial-gradient(ellipse 55% 50% at 62% 28%,rgba(45,80,22,0.13) 0%,transparent 55%)`}}>
       <div style={{width:"100%",maxWidth:440}}>
@@ -1910,11 +1950,29 @@ function AuthScreen({onLogin}){
           <div style={{fontSize:11,color:C.muted,letterSpacing:2,marginTop:2}}>TIMBER INTELLIGENCE PLATFORM</div>
         </div>
         <Card>
-          <div style={{display:"flex",flexDirection:"column",gap:11,marginBottom:18}}>
-            <Inp label="Email" type="email" placeholder="you@example.com" value="" onChange={()=>{}}/>
-            <Inp label="Password" type="password" placeholder="••••••••" value="" onChange={()=>{}}/>
-            <Btn full size="lg" onClick={()=>quick(DEMO_USERS[0])} disabled={loading}>{loading?"Loading…":"Sign In"}</Btn>
-          </div>
+          {signupSuccess?(
+            <div style={{textAlign:"center",padding:"20px 0"}}>
+              <div style={{fontSize:48,marginBottom:12}}>📧</div>
+              <H1 size={22} color={C.fresh} style={{marginBottom:8}}>CHECK YOUR EMAIL</H1>
+              <div style={{color:C.muted,fontSize:13,lineHeight:1.6,marginBottom:16}}>We sent a confirmation link to <Mono style={{color:C.gold}}>{email}</Mono>. Click the link to activate your account.</div>
+              <Btn v="outline" onClick={()=>{setSignupSuccess(false);setMode("login");}}>Back to Sign In</Btn>
+            </div>
+          ):(
+            <>
+              <div style={{display:"flex",marginBottom:16,borderRadius:5,overflow:"hidden",border:`1px solid ${C.border}`}}>
+                {[["login","Sign In"],["signup","Sign Up"]].map(([k,l])=>(
+                  <button key={k} onClick={()=>{setMode(k);setError("");}} style={{flex:1,padding:"8px 0",background:mode===k?C.goldDim:"transparent",color:mode===k?C.gold:C.muted,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:mode===k?700:400,borderBottom:mode===k?`2px solid ${C.gold}`:"2px solid transparent"}}>{l}</button>
+                ))}
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:11,marginBottom:16}}>
+                {mode==="signup"&&<Inp label="Full Name" placeholder="Jake Harmon" value={name} onChange={e=>setName(e.target.value)}/>}
+                <Inp label="Email" type="email" placeholder="you@example.com" value={email} onChange={e=>setEmail(e.target.value)}/>
+                <Inp label="Password" type="password" placeholder="••••••••" value={password} onChange={e=>setPassword(e.target.value)}/>
+                {error&&<div style={{padding:"8px 12px",background:C.rustDim,border:`1px solid ${C.rustBorder}`,borderRadius:5,fontSize:12,color:C.rust}}>{error}</div>}
+                <Btn full size="lg" onClick={handleAuth} disabled={loading||!email||!password}>{loading?"Loading…":mode==="signup"?"Create Account":"Sign In"}</Btn>
+              </div>
+            </>
+          )}
           <div style={{padding:12,background:C.goldDim,borderRadius:6,border:`1px solid ${C.goldBorder}`}}>
             <Lbl style={{marginBottom:10}}>Quick Demo — All Portals</Lbl>
             <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
@@ -1944,11 +2002,40 @@ export default function MillMarket(){
   const [activeRole,setActiveRole]=useState(null);
   const [view,setView]=useState("dashboard");
   const [onboarding,setOnboarding]=useState(false);
+  const [authLoading,setAuthLoading]=useState(true);
   const mobile=useMobile(); // ← must be before any conditional returns
+
+  // Check for existing Supabase session on mount
+  useEffect(()=>{
+    let cancelled=false;
+    (async()=>{
+      try{
+        const {getSession}=await import("./lib/supabase.js").then(m=>import("./lib/auth.js"));
+        const session=await getSession();
+        if(session?.user&&!cancelled){
+          const {supabase}=await import("./lib/supabase.js");
+          const {data:profile}=await supabase.from("profiles").select("*").eq("id",session.user.id).single();
+          login({
+            id:session.user.id,
+            name:profile?.name||session.user.user_metadata?.name||session.user.email?.split("@")[0],
+            email:session.user.email,
+            roles:profile?.roles||["logger"],
+            primaryRole:profile?.roles?.[0]||"logger",
+            company:profile?.company||"",
+            plan:profile?.plan||"free",
+            isNew:!profile?.roles?.length,
+          });
+        }
+      }catch(e){/* no session or Supabase not configured — fall through to login screen */}
+      if(!cancelled)setAuthLoading(false);
+    })();
+    return()=>{cancelled=true;};
+  },[]);
 
   const login=u=>{
     setUser(u);
     setActiveRole(u.primaryRole||u.roles?.[0]);
+    setAuthLoading(false);
     if(u.isNew){setOnboarding(true);return;}
     setView(u.primaryRole==="contract"?"tickets":"dashboard");
   };
@@ -1960,6 +2047,14 @@ export default function MillMarket(){
 
   const switchRole=r=>{setActiveRole(r);setView("dashboard");};
 
+  if(authLoading) return(
+    <div style={{minHeight:"100vh",background:C.ink,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:48,letterSpacing:5,color:C.gold,marginBottom:12}}>MILL<span style={{color:C.sawdust}}>MARKET</span></div>
+        <div style={{fontSize:12,color:C.muted}}>Loading...</div>
+      </div>
+    </div>
+  );
   if(!user) return <AuthScreen onLogin={login}/>;
   if(onboarding) return <Onboarding onComplete={finishOnboarding}/>;
 
@@ -2090,7 +2185,7 @@ export default function MillMarket(){
                     style={{fontSize:11,color:C.muted,background:"rgba(14,9,4,0.8)",border:`1px solid ${C.border}`,borderRadius:4,padding:"3px 8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none"}}>
                     {DEMO_USERS.map(u=><option key={u.id} value={u.id}>{ROLES[u.primaryRole]?.icon} {u.name}{u.isNew?" 🆕":""}</option>)}
                   </select>
-                  <button onClick={()=>setUser(null)} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Sign Out</button>
+                  <button onClick={async()=>{try{const {signOut}=await import("./lib/auth.js");await signOut();}catch(e){}setUser(null);setActiveRole(null);setView("dashboard");}} style={{fontSize:11,color:C.muted,background:"transparent",border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Sign Out</button>
                 </div>
               </>
             )}
@@ -2337,7 +2432,14 @@ function LoadTicketsWithAutofill({user,activeRole}){
   const [tickets,setTickets]=useState(MOCK_TICKETS);
   const [newModal,setNewModal]=useState(false);
   const [viewTicket,setViewTicket]=useState(null);
-  const [photoSim,setPhotoSim]=useState(false);
+  const [photoFile,setPhotoFile]=useState(null);
+  const [photoPreview,setPhotoPreview]=useState(null);
+  const fileInputRef=useRef(null);
+  const cameraInputRef=useRef(null);
+  const viewFileInputRef=useRef(null);
+  const handlePhotoSelect=(e)=>{const f=e.target.files?.[0];if(f){setPhotoFile(f);setPhotoPreview(URL.createObjectURL(f));}};
+  const clearPhoto=()=>{setPhotoFile(null);if(photoPreview)URL.revokeObjectURL(photoPreview);setPhotoPreview(null);};
+  const photoSim=!!photoFile;
   const [submitted,setSubmitted]=useState(false);
   const lastTicket=tickets[0];
   const [opType,setOpType]=useState(lastTicket?.opType||"tree_length");
@@ -2349,7 +2451,7 @@ function LoadTicketsWithAutofill({user,activeRole}){
     const qty=opType==="cut_to_length"?parseFloat(form.mbf)||0:parseFloat(form.scaleTons||form.grossTons)||0;
     const gross=qty*(parseFloat(form.rate)||0);
     const t={id:`t${Date.now()}`,no:form.no||`W-${Math.floor(Math.random()*90000+10000)}`,date:form.date,opType,mill:form.mill,species:form.species,scaleTons:opType==="cut_to_length"?null:qty,mbf:opType==="cut_to_length"?qty:null,rate:parseFloat(form.rate)||0,gross,status:photoSim?"photo_uploaded":"pending_photo",photo:photoSim,millVerified:false,jobSite:form.jobSite,submittedBy:user?.name||"You"};
-    setTickets(p=>[t,...p]);setSubmitted(true);setTimeout(()=>{setNewModal(false);setSubmitted(false);setPhotoSim(false);},1300);
+    setTickets(p=>[t,...p]);setSubmitted(true);setTimeout(()=>{setNewModal(false);setSubmitted(false);clearPhoto();},1300);
   };
   const statusColor={verified:C.fresh,photo_uploaded:C.blue,pending_photo:C.gold,rejected:C.rust};
   const statusLabel={verified:"✓ Verified",photo_uploaded:"📸 Under Review",pending_photo:"⏳ Needs Photo",rejected:"✗ Rejected"};
@@ -2448,7 +2550,19 @@ function LoadTicketsWithAutofill({user,activeRole}){
           </div>
           <div style={{marginBottom:12,padding:12,background:"rgba(14,9,4,0.5)",borderRadius:5,border:`1px solid ${C.border}`}}>
             <Lbl style={{marginBottom:8}}>Photo Verification</Lbl>
-            {viewTicket.photo?<div style={{display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:24}}>📸</span><span style={{color:C.fresh,fontSize:13}}>Photo attached and on record</span></div>:<div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}><span style={{color:C.rust,fontSize:12}}>⚠ No photo — confidence reduced</span><Btn v="blue" size="sm" onClick={()=>setViewTicket(p=>({...p,photo:true,status:"photo_uploaded"}))}>📸 Upload Photo</Btn><span style={{fontSize:11,color:C.muted}}>or email to tickets@millmarket.com</span></div>}
+            <input ref={viewFileInputRef} type="file" accept="image/*" capture="environment" onChange={(e)=>{const f=e.target.files?.[0];if(f){setViewTicket(p=>({...p,photo:true,status:"photo_uploaded",_photoFile:f,_photoPreview:URL.createObjectURL(f)}));setTickets(ts=>ts.map(t=>t.id===viewTicket.id?{...t,photo:true,status:"photo_uploaded"}:t));}}} style={{display:"none"}}/>
+            {viewTicket.photo?(
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                {viewTicket._photoPreview?<img src={viewTicket._photoPreview} alt="Ticket" style={{width:60,height:60,objectFit:"cover",borderRadius:6,border:`2px solid ${C.fresh}`}}/>:<span style={{fontSize:24}}>📸</span>}
+                <span style={{color:C.fresh,fontSize:13}}>Photo attached and on record</span>
+              </div>
+            ):(
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <span style={{color:C.rust,fontSize:12}}>⚠ No photo — confidence reduced</span>
+                <Btn v="blue" size="sm" onClick={()=>viewFileInputRef.current?.click()}>📸 Upload Photo</Btn>
+                <span style={{fontSize:11,color:C.muted}}>or email to tickets@millmarket.com</span>
+              </div>
+            )}
           </div>
           <div style={{padding:12,background:"rgba(14,9,4,0.5)",borderRadius:5,border:`1px solid ${C.border}`}}>
             <Lbl style={{marginBottom:8}}>Mill Counter-Verification</Lbl>
@@ -2500,11 +2614,23 @@ function LoadTicketsWithAutofill({user,activeRole}){
               {(opType==="whole_tree_chip"||opType==="biomass")&&<div style={{display:"grid",gridTemplateColumns:mobile?"1fr":"1fr 1fr",gap:10}}><Inp label="Green Tons" suffix="tons" value={form.grossTons} onChange={h("grossTons")} type="number"/><Inp label="Moisture %" suffix="%" value={form.moisture} onChange={h("moisture")} type="number"/></div>}
               <div style={{padding:12,background:"rgba(14,9,4,0.5)",borderRadius:5,border:`1px solid ${C.border}`}}>
                 <Lbl style={{marginBottom:8}}>Ticket Photo</Lbl>
-                <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
-                  <Btn v="blue" size="sm" onClick={()=>setPhotoSim(true)}>📸 Photograph Ticket</Btn>
-                  <Btn v="outline" size="sm" onClick={()=>setPhotoSim(true)}>📁 Upload File</Btn>
-                  {photoSim&&<Badge color={C.fresh} dot>Photo attached</Badge>}
-                </div>
+                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handlePhotoSelect} style={{display:"none"}}/>
+                <input ref={fileInputRef} type="file" accept="image/*,.pdf" onChange={handlePhotoSelect} style={{display:"none"}}/>
+                {photoPreview?(
+                  <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                    <img src={photoPreview} alt="Ticket" style={{width:80,height:80,objectFit:"cover",borderRadius:6,border:`2px solid ${C.fresh}`}}/>
+                    <div style={{flex:1}}>
+                      <Badge color={C.fresh} dot>Photo attached</Badge>
+                      <div style={{fontSize:11,color:C.muted,marginTop:4}}>{photoFile?.name} ({(photoFile?.size/1024).toFixed(0)} KB)</div>
+                    </div>
+                    <Btn v="ghost" size="sm" style={{color:C.rust}} onClick={clearPhoto}>✕ Remove</Btn>
+                  </div>
+                ):(
+                  <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
+                    <Btn v="blue" size="sm" onClick={()=>cameraInputRef.current?.click()}>📸 Take Photo</Btn>
+                    <Btn v="outline" size="sm" onClick={()=>fileInputRef.current?.click()}>📁 Choose File</Btn>
+                  </div>
+                )}
                 <div style={{fontSize:10,color:C.muted,marginTop:6}}>Or email photo to <Mono style={{color:C.gold}}>tickets@millmarket.com</Mono></div>
               </div>
               <div style={{display:"flex",gap:9}}><Btn v="outline" full onClick={()=>setNewModal(false)}>Cancel</Btn><Btn full onClick={submitTicket}>Submit Ticket</Btn></div>
