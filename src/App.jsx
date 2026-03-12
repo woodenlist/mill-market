@@ -1712,7 +1712,19 @@ function Onboarding({onComplete}){
     firstSite:"",firstSiteAcres:"",firstMill:"",
     inviteEmails:[""],
   });
+  const [userLoc,setUserLoc]=useState(null);
+  const [locRequested,setLocRequested]=useState(false);
   const h=f=>e=>setForm(p=>({...p,[f]:e.target.value}));
+  const requestLocation=()=>{
+    setLocRequested(true);
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(
+        (pos)=>setUserLoc({lat:pos.coords.latitude,lng:pos.coords.longitude}),
+        ()=>{},
+        {enableHighAccuracy:false,timeout:10000}
+      );
+    }
+  };
 
   const steps=[
     {title:"Company Setup",    icon:"🏢", desc:"Tell us about your operation"},
@@ -1722,7 +1734,7 @@ function Onboarding({onComplete}){
     {title:"You're Ready",     icon:"🎉", desc:"Your platform is configured"},
   ];
 
-  const stateOptions=["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"];
+  const stateOptions=[["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],["CT","Connecticut"],["DE","Delaware"],["FL","Florida"],["GA","Georgia"],["HI","Hawaii"],["ID","Idaho"],["IL","Illinois"],["IN","Indiana"],["IA","Iowa"],["KS","Kansas"],["KY","Kentucky"],["LA","Louisiana"],["ME","Maine"],["MD","Maryland"],["MA","Massachusetts"],["MI","Michigan"],["MN","Minnesota"],["MS","Mississippi"],["MO","Missouri"],["MT","Montana"],["NE","Nebraska"],["NV","Nevada"],["NH","New Hampshire"],["NJ","New Jersey"],["NM","New Mexico"],["NY","New York"],["NC","North Carolina"],["ND","North Dakota"],["OH","Ohio"],["OK","Oklahoma"],["OR","Oregon"],["PA","Pennsylvania"],["RI","Rhode Island"],["SC","South Carolina"],["SD","South Dakota"],["TN","Tennessee"],["TX","Texas"],["UT","Utah"],["VT","Vermont"],["VA","Virginia"],["WA","Washington"],["WV","West Virginia"],["WI","Wisconsin"],["WY","Wyoming"]].sort((a,b)=>a[1].localeCompare(b[1]));
 
   return(
     <div style={{minHeight:"100vh",background:C.ink,display:"flex",alignItems:"center",justifyContent:"center",padding:20,backgroundImage:`radial-gradient(ellipse 55% 50% at 62% 28%,rgba(45,80,22,0.13) 0%,transparent 55%)`}}>
@@ -1758,7 +1770,7 @@ function Onboarding({onComplete}){
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                 <Inp label="EIN" placeholder="82-1234567" value={form.ein} onChange={h("ein")} note="Used for QB export — you can add later"/>
                 <Sel label="Primary State" value={form.state} onChange={h("state")}>
-                  {stateOptions.map(s=><option key={s}>{s}</option>)}
+                  {stateOptions.map(([abbr,name])=><option key={abbr} value={abbr}>{name}</option>)}
                 </Sel>
               </div>
               <div>
@@ -1818,6 +1830,17 @@ function Onboarding({onComplete}){
               <div style={{padding:12,background:C.goldDim,border:`1px solid ${C.goldBorder}`,borderRadius:5,fontSize:12,color:C.gold}}>
                 📍 You can drop pins on the map anytime. This just gets your first site ready to go.
               </div>
+              {!locRequested?(
+                <Btn v="outline" full onClick={requestLocation}>📍 Use My Current Location</Btn>
+              ):userLoc?(
+                <div style={{padding:10,background:"rgba(42,107,138,0.15)",border:`1px solid rgba(42,107,138,0.3)`,borderRadius:5,fontSize:12,color:C.blue,display:"flex",alignItems:"center",gap:8}}>
+                  <span>📍</span><span>Location set: {userLoc.lat.toFixed(4)}°N, {Math.abs(userLoc.lng).toFixed(4)}°W</span>
+                </div>
+              ):(
+                <div style={{padding:10,background:"rgba(14,9,4,0.4)",borderRadius:5,fontSize:12,color:C.muted,display:"flex",alignItems:"center",gap:8}}>
+                  <span>📍</span><span>Requesting location access...</span>
+                </div>
+              )}
               <Inp label="Site Name (optional)" placeholder="Rhinelander NW Block" value={form.firstSite} onChange={h("firstSite")}/>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                 <Inp label="Acres (optional)" suffix="ac" type="number" value={form.firstSiteAcres} onChange={h("firstSiteAcres")}/>
@@ -1869,13 +1892,13 @@ function Onboarding({onComplete}){
             {step===3&&<Btn full onClick={()=>setStep(4)}>
               {form.inviteEmails.filter(Boolean).length>0?"Send Invites & Finish":"Skip & Finish"}
             </Btn>}
-            {step===4&&<Btn full size="lg" onClick={onComplete}>Enter MillMarket →</Btn>}
+            {step===4&&<Btn full size="lg" onClick={()=>onComplete(form)}>Enter MillMarket →</Btn>}
           </div>
         </Card>
 
         {step<4&&(
           <div style={{textAlign:"center",marginTop:14}}>
-            <button onClick={onComplete} style={{fontSize:12,color:C.muted,background:"transparent",border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+            <button onClick={()=>onComplete(form)} style={{fontSize:12,color:C.muted,background:"transparent",border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
               Skip setup — I'll configure later
             </button>
           </div>
@@ -2062,9 +2085,23 @@ export default function MillMarket(){
     setView(u.primaryRole==="contract"?"tickets":"dashboard");
   };
 
-  const finishOnboarding=()=>{
+  const finishOnboarding=async(formData)=>{
     setOnboarding(false);
     setView("dashboard");
+    // Persist onboarding data to Supabase so it doesn't re-trigger
+    if(user?.id&&!isDemo(user.id)){
+      try{
+        const {supabase}=await import("./lib/supabase.js");
+        const updates={
+          roles:[formData?.primaryRole||"logger"],
+          company:formData?.companyName||"",
+          name:user.name,
+        };
+        await supabase.from("profiles").upsert({id:user.id,...updates});
+        setUser(u=>({...u,...updates,primaryRole:updates.roles[0],isNew:false}));
+        setActiveRole(updates.roles[0]);
+      }catch(e){console.error("Failed to save onboarding:",e);}
+    }
   };
 
   const switchRole=r=>{setActiveRole(r);setView("dashboard");};
@@ -2357,10 +2394,9 @@ function MapView({user,activeRole}){
             <div key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:C.muted}}><div style={{width:7,height:7,borderRadius:"50%",background:c}}/>{l}</div>
           ))}
         </div>
-      </div>
 
-      {/* SIDE PANEL */}
-      {(selectedMill||selectedSite)?<div style={mobile?{maxHeight:"40vh",background:C.bark,borderTop:`1px solid ${C.border}`,overflowY:"auto",flexShrink:0}:{position:"absolute",right:0,top:0,bottom:0,width:340,background:C.bark,borderLeft:`1px solid ${C.border}`,overflowY:"auto",zIndex:10,boxShadow:"-4px 0 20px rgba(0,0,0,0.4)"}}>
+      {/* SIDE PANEL — desktop: absolute inside map wrapper; mobile: rendered outside below */}
+      {!mobile&&(selectedMill||selectedSite)?<div style={{position:"absolute",right:0,top:0,bottom:0,width:340,background:C.bark,borderLeft:`1px solid ${C.border}`,overflowY:"auto",zIndex:1000,boxShadow:"-4px 0 20px rgba(0,0,0,0.4)"}}>
         {selectedMill&&tab==="mills"&&(
           <div>
             <div style={{padding:"16px 16px 12px",borderBottom:`1px solid ${C.border}`,background:"rgba(45,26,12,0.4)"}}>
@@ -2426,6 +2462,42 @@ function MapView({user,activeRole}){
           </div>
         )}
 
+      </div>:null}
+      </div>{/* end map wrapper */}
+
+      {/* Mobile side panel — outside map wrapper as flex sibling */}
+      {mobile&&(selectedMill||selectedSite)?<div style={{maxHeight:"40vh",background:C.bark,borderTop:`1px solid ${C.border}`,overflowY:"auto",flexShrink:0}}>
+        {selectedMill&&tab==="mills"&&(<div>
+          <div style={{padding:"16px 16px 12px",borderBottom:`1px solid ${C.border}`,background:"rgba(45,26,12,0.4)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:18,letterSpacing:1,lineHeight:1.1,flex:1}}>{selectedMill.name}</div>
+              <button onClick={()=>setSelectedMill(null)} style={{background:"transparent",border:"none",color:C.muted,fontSize:18,cursor:"pointer",padding:"0 4px",lineHeight:1}}>✕</button>
+            </div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:8}}>📍 {selectedMill.state}{userLoc&&selectedMill.lat?` · ${Math.round(haversineDistance(userLoc.lat,userLoc.lng,selectedMill.lat,selectedMill.lng))} mi away`:""}</div>
+            <div style={{marginBottom:8}}>{selectedMill.accepting?<Badge color={C.fresh} dot>Accepting Loads</Badge>:<Badge color={C.rust}>🚫 Closed</Badge>}</div>
+          </div>
+          <div style={{padding:14}}>
+            <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              <Btn full size="sm">🚛 Plan Haul to This Mill</Btn>
+              <Btn v="outline" full size="sm">📝 Submit Rate Update</Btn>
+            </div>
+          </div>
+        </div>)}
+        {selectedSite&&tab==="sites"&&(<div>
+          <div style={{padding:"16px 16px 12px",borderBottom:`1px solid ${C.border}`,background:"rgba(45,26,12,0.4)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:18,letterSpacing:1,lineHeight:1.1,flex:1}}>{selectedSite.name}</div>
+              <button onClick={()=>setSelectedSite(null)} style={{background:"transparent",border:"none",color:C.muted,fontSize:18,cursor:"pointer",padding:"0 4px",lineHeight:1}}>✕</button>
+            </div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:6}}>📍 {selectedSite.county} · {selectedSite.acres} acres</div>
+          </div>
+          <div style={{padding:14}}>
+            <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {isOwnerOrLogger&&<Btn full size="sm">+ Log Haul from This Site</Btn>}
+              <Btn v="outline" full size="sm">🎫 View Tickets for Site</Btn>
+            </div>
+          </div>
+        </div>)}
       </div>:null}
 
       {pinModal&&(
